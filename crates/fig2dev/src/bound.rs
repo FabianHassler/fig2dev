@@ -286,7 +286,7 @@ pub fn arc_bound(ctx: &Ctx, arc: &Arc) -> Bounds {
     let alpha = angle_of(c, p0);
     let dx = p0.x as f64 - c.x;
     let dy = c.y - p0.y as f64;
-    let radius = (dx * dx + dy * dy).sqrt();
+    let radius = dx.mul_add(dx, dy * dy).sqrt();
     let beta = angle_of(c, p2);
 
     let mut bx = p0.x.max(p1.x).max(p2.x);
@@ -364,7 +364,7 @@ pub fn ellipse_bound(e: &Ellipse) -> Bounds {
 
     let c1 = cphisqr / asqr + sphisqr / bsqr;
     let c2 = (cphi * sphi / asqr - cphi * sphi / bsqr) / c1;
-    let mut c3 = bsqr * cphisqr + asqr * sphisqr;
+    let mut c3 = bsqr.mul_add(cphisqr, asqr * sphisqr);
     let yymax_f = c3.sqrt();
     let half_wd = e.thickness.saturating_add(1) / 2;
 
@@ -380,7 +380,7 @@ pub fn ellipse_bound(e: &Ellipse) -> Bounds {
     let mut c5 = 0.0;
     let mut v1 = c4 * c4;
     let c6 = 2.0 * v1;
-    c3 = c3 * v1 - v1;
+    c3 = c3.mul_add(v1, -v1);
 
     // fig2dev's min and max mix ints and doubles; the result is truncated.
     let (mut xmin, mut ymin, mut xmax, mut ymax) = (BIG, BIG, -BIG, -BIG);

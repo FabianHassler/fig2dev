@@ -130,7 +130,8 @@ pub fn compute_open_spline(ctx: &mut Ctx, s: &Spline, precision: f32) -> Option<
 pub fn compute_closed_spline(ctx: &mut Ctx, s: &Spline, precision: f32) -> Option<Vec<Point>> {
     let n = s.points.len();
     if n < 3 {
-        ctx.warn("A closed spline with less than three points.");
+        // C writes this without a newline: the reader's next message continues the line.
+        ctx.warn_partial("A closed spline with less than three points.");
         return None;
     }
     let factors = shape_factors(s);
@@ -153,17 +154,27 @@ fn f_blend(numerator: f64, denominator: f64) -> f64 {
     let p = 2.0 * denominator * denominator;
     let u = numerator / denominator;
     let u2 = u * u;
-    u * u2 * (10.0 - p + (2.0 * p - 15.0) * u + (6.0 - p) * u2)
+    // clang fuses the three terms (ffp-contract=on in the reference)
+    u * u2 * (6.0 - p).mul_add(u2, (2.0 * p - 15.0).mul_add(u, 10.0 - p))
 }
 
 /// p equals 2.
 fn g_blend(u: f64, q: f64) -> f64 {
-    u * (q + u * (2.0 * q + u * (8.0 - 12.0 * q + u * (14.0 * q - 11.0 + u * (4.0 - 5.0 * q)))))
+    u * u.mul_add(
+        u.mul_add(
+            u.mul_add(
+                u.mul_add((-5.0f64).mul_add(q, 4.0), 14.0f64.mul_add(q, -11.0)),
+                (-12.0f64).mul_add(q, 8.0),
+            ),
+            2.0 * q,
+        ),
+        q,
+    )
 }
 
 fn h_blend(u: f64, q: f64) -> f64 {
     let u2 = u * u;
-    u * (q + u * (2.0 * q + u2 * (-2.0 * q - u * q)))
+    u * u.mul_add(u2.mul_add((-2.0f64).mul_add(q, -(u * q)), 2.0 * q), q)
 }
 
 /// `(A0, A2)` for a negative `s1`.
@@ -225,7 +236,10 @@ fn blend(k: i32, t: f64, s1: f64, s2: f64) -> [f64; 4] {
 fn point_computing(a: &[f64; 4], p: &[Point; 4]) -> (i32, i32) {
     let w = a[0] + a[1] + a[2] + a[3];
     let num = |f: fn(&Point) -> i32| {
-        a[0] * f(&p[0]) as f64 + a[1] * f(&p[1]) as f64 + a[2] * f(&p[2]) as f64 + a[3] * f(&p[3]) as f64
+        a[3].mul_add(
+            f(&p[3]) as f64,
+            a[2].mul_add(f(&p[2]) as f64, a[0].mul_add(f(&p[0]) as f64, a[1] * f(&p[1]) as f64)),
+        )
     };
     (crate::round(num(|q| q.x) / w), crate::round(num(|q| q.y) / w))
 }
@@ -279,8 +293,8 @@ fn step_computing(k: i32, seg: &Segment, precision: f32) -> f32 {
     let yv1 = (ystart as i64 - ymid as i64) as f32;
     let xv2 = (xend as i64 - xmid as i64) as f32;
     let yv2 = (yend as i64 - ymid as i64) as f32;
-    let scal_prod = xv1 * xv2 + yv1 * yv2;
-    let sides_length_prod = (((xv1 * xv1 + yv1 * yv1) * (xv2 * xv2 + yv2 * yv2)) as f64).sqrt() as f32;
+    let scal_prod = xv1.mul_add(xv2, yv1 * yv2);
+    let sides_length_prod = ((xv1.mul_add(xv1, yv1 * yv1) * xv2.mul_add(xv2, yv2 * yv2)) as f64).sqrt() as f32;
     // the cosine of the origin-middle-extremity angle approximates the
     // curvature of the segment
     let angle_cos = if sides_length_prod == 0.0 {

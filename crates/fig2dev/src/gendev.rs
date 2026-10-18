@@ -162,6 +162,8 @@ pub struct Ctx {
     pub max_dimension: f64,
     /// Lines fig2dev writes on stderr, in order.
     pub messages: Vec<String>,
+    /// The last message had no newline in C (`warn_partial`): the next one continues its line.
+    pub partial_line: bool,
     /// The directory relative picture names are resolved against when
     /// the figure doesn't come from a file. The reader already prefixes
     /// relative names with the directory of `from` (as read.c does), so
@@ -224,6 +226,7 @@ impl Default for Ctx {
             maxdimspec: 0,
             max_dimension: 0.0,
             messages: Vec::new(),
+            partial_line: false,
             dir: None,
         }
     }
@@ -232,7 +235,22 @@ impl Default for Ctx {
 impl Ctx {
     /// A message on stderr (`fprintf(stderr, …)`, `put_msg`).
     pub fn warn(&mut self, msg: impl Into<String>) {
-        self.messages.push(msg.into());
+        let msg = msg.into();
+        if self.partial_line {
+            self.partial_line = false;
+            if let Some(last) = self.messages.last_mut() {
+                last.push_str(&msg);
+                return;
+            }
+        }
+        self.messages.push(msg);
+    }
+
+    /// A message C writes without a trailing newline: the next message
+    /// lands on the same line.
+    pub fn warn_partial(&mut self, msg: impl Into<String>) {
+        self.warn(msg);
+        self.partial_line = true;
     }
 
     /// `depth_filter`: whether objects at `depth` are drawn.
