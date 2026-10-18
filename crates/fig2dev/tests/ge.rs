@@ -29,8 +29,8 @@ fn as_fig2dev() {
 
 #[test]
 fn unknown_option() {
-    let mut d = rustfig_fig2dev::drivers::driver("ge").unwrap();
-    let mut ctx = rustfig_fig2dev::Ctx::default();
+    let mut d = fig2dev::drivers::driver("ge").unwrap();
+    let mut ctx = fig2dev::Ctx::default();
     assert_eq!(
         d.option(&mut ctx, 'a', None).unwrap_err(),
         "Argument -a unknown to ge driver."
@@ -38,7 +38,7 @@ fn unknown_option() {
     assert!(d.option(&mut ctx, 'G', Some("1")).is_ok());
 }
 
-/// Opt-in: `cargo test -p rustfig-fig2dev --test ge -- --ignored --nocapture`.
+/// Opt-in: `cargo test -p fig2dev --test ge -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {

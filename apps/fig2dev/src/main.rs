@@ -14,7 +14,7 @@
 // Ported from fig2dev fig2dev.c (`get_args`, `main`, `help_msg`), drivers.h
 // and messages.c (xfig licence, see LICENSE-xfig).
 
-use rustfig_fig2dev::options::{Arg, Support, OPTIONS};
+use fig2dev::options::{Arg, Support, OPTIONS};
 use std::io::{Read, Write};
 use std::process::ExitCode;
 
@@ -30,7 +30,7 @@ const USAGE: &str =
 /// How RustFig writes one of fig2dev's languages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Writer {
-    /// A ported driver (`rustfig_fig2dev::drivers::driver`).
+    /// A ported driver (`fig2dev::drivers::driver`).
     Ported,
     /// Not ported yet: the plan task.
     Planned(&'static str),
@@ -183,8 +183,8 @@ const GENERAL_HELP: &[(char, &str)] = &[
 
 /// Whether RustFig's fig2dev writes `lang`.
 fn writes(lang: &str) -> bool {
-    rustfig_fig2dev::drivers::help(lang).is_some()
-        || rustfig_fig2dev::drivers::driver(lang).is_some()
+    fig2dev::drivers::help(lang).is_some()
+        || fig2dev::drivers::driver(lang).is_some()
         || matches!(find_driver(lang).map(|d| d.2), Some(Writer::Ported))
 }
 
@@ -193,7 +193,7 @@ fn writes(lang: &str) -> bool {
 fn general_effective(c: char, lang: &str) -> bool {
     match c {
         'h' | 'V' => true,
-        'G' => match rustfig_fig2dev::drivers::help(lang) {
+        'G' => match fig2dev::drivers::help(lang) {
             Some(h) => h.grid,
             None => OPTIONS
                 .iter()
@@ -206,11 +206,11 @@ fn general_effective(c: char, lang: &str) -> bool {
 /// The options of `lang` that do something in RustFig, as help lines,
 /// with the section title; general options are left out.
 fn language_help(lang: &str) -> (String, Vec<String>) {
-    if let Some(h) = rustfig_fig2dev::drivers::help(lang) {
+    if let Some(h) = fig2dev::drivers::help(lang) {
         let lines = h
             .options
             .iter()
-            .map(|o| rustfig_fig2dev::drivers::help::format_option(o.letter, o.arg, o.text))
+            .map(|o| fig2dev::drivers::help::format_option(o.letter, o.arg, o.text))
             .collect();
         return (h.title.to_string(), lines);
     }
@@ -232,7 +232,7 @@ fn language_help(lang: &str) -> (String, Vec<String>) {
                 Arg::Font => "font",
                 Arg::Text | Arg::Depths | Arg::Size => "arg",
             };
-            rustfig_fig2dev::drivers::help::format_option(o.letter, arg, o.help)
+            fig2dev::drivers::help::format_option(o.letter, arg, o.help)
         })
         .collect();
     (title, lines)
@@ -283,31 +283,31 @@ fn print_help(lang: Option<&str>) {
     }
 }
 
-/// The drivers ported in `rustfig-fig2dev`, created when `-L` (or the
+/// The drivers ported in `fig2dev`, created when `-L` (or the
 /// output suffix) first names them; each keeps its options, as fig2dev's
 /// static driver state does.
 #[derive(Default)]
 struct Devices {
-    list: Vec<(&'static str, Box<dyn rustfig_fig2dev::Driver>)>,
+    list: Vec<(&'static str, Box<dyn fig2dev::Driver>)>,
 }
 
 impl Devices {
-    fn get(&mut self, lang: &'static str) -> Option<&mut Box<dyn rustfig_fig2dev::Driver>> {
+    fn get(&mut self, lang: &'static str) -> Option<&mut Box<dyn fig2dev::Driver>> {
         if !self.list.iter().any(|(l, _)| *l == lang) {
-            let d = rustfig_fig2dev::drivers::driver(lang)?;
+            let d = fig2dev::drivers::driver(lang)?;
             self.list.push((lang, d));
         }
         self.list.iter_mut().find(|(l, _)| *l == lang).map(|(_, d)| d)
     }
 
-    fn take(&mut self, lang: &str) -> Option<Box<dyn rustfig_fig2dev::Driver>> {
+    fn take(&mut self, lang: &str) -> Option<Box<dyn fig2dev::Driver>> {
         let i = self.list.iter().position(|(l, _)| *l == lang)?;
         Some(self.list.swap_remove(i).1)
     }
 }
 
 /// Write fig2dev's messages gathered in `ctx`, one line each.
-fn flush_messages(ctx: &mut rustfig_fig2dev::Ctx) {
+fn flush_messages(ctx: &mut fig2dev::Ctx) {
     for m in ctx.messages.drain(..) {
         eprintln!("{m}");
     }
@@ -317,7 +317,7 @@ fn flush_messages(ctx: &mut rustfig_fig2dev::Ctx) {
 fn pass_to_driver(
     lang: Option<&'static str>,
     devs: &mut Devices,
-    ctx: &mut rustfig_fig2dev::Ctx,
+    ctx: &mut fig2dev::Ctx,
     c: char,
     arg: Option<String>,
 ) -> Result<(), Exit> {
@@ -353,14 +353,13 @@ fn strerror(e: Option<&std::io::Error>) -> String {
 /// Read at most `MAX_FILE_BYTES` + 1 bytes.
 fn read_capped(r: impl Read) -> std::io::Result<Vec<u8>> {
     let mut buf = Vec::new();
-    r.take(rustfig_fig2dev::read::MAX_FILE_BYTES as u64 + 1)
-        .read_to_end(&mut buf)?;
+    r.take(fig2dev::read::MAX_FILE_BYTES as u64 + 1).read_to_end(&mut buf)?;
     Ok(buf)
 }
 
 /// fig2dev's `main` reading the figure (`read_fig` or `readfp_fig`) with
 /// its messages; `None` is `exit(EXIT_FAILURE)`.
-fn read_figure(ctx: &mut rustfig_fig2dev::Ctx, from: Option<&str>) -> Option<rustfig_fig2dev::object::Compound> {
+fn read_figure(ctx: &mut fig2dev::Ctx, from: Option<&str>) -> Option<fig2dev::object::Compound> {
     // err_msg: the message, then ": " and strerror(errno).
     let not_accessible = |e: Option<&std::io::Error>| match from {
         Some(path) => format!("File \"{path}\" is not accessible: {}", strerror(e)),
@@ -390,11 +389,11 @@ fn read_figure(ctx: &mut rustfig_fig2dev::Ctx, from: Option<&str>) -> Option<rus
             return None;
         }
     };
-    if src.len() > rustfig_fig2dev::read::MAX_FILE_BYTES {
+    if src.len() > fig2dev::read::MAX_FILE_BYTES {
         eprintln!("fig2dev: input file is too large");
         return None;
     }
-    let objects = rustfig_fig2dev::read::readfp_fig(ctx, &src);
+    let objects = fig2dev::read::readfp_fig(ctx, &src);
     flush_messages(ctx);
     match objects {
         Ok(o) => Some(o),
@@ -451,7 +450,7 @@ fn run(args: Vec<String>) -> Result<u8, Exit> {
         println!("fig2dev Version {VERSION}");
         return Ok(0);
     }
-    let mut ctx = rustfig_fig2dev::Ctx::default();
+    let mut ctx = fig2dev::Ctx::default();
     let mut devs = Devices::default();
     let mut lang: Option<&'static str> = None;
     // The language guessed from the last argument's suffix gets -L, as an
@@ -545,7 +544,7 @@ fn run(args: Vec<String>) -> Result<u8, Exit> {
         return Ok(1);
     };
     let output = open_output(to)?;
-    let status = rustfig_fig2dev::convert(&mut ctx, dev.as_mut(), &objects);
+    let status = fig2dev::convert(&mut ctx, dev.as_mut(), &objects);
     flush_messages(&mut ctx);
     let status = status.map_err(Exit)?;
     write_output(output, &status.output)?;

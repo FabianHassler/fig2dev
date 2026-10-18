@@ -2,7 +2,7 @@
 //! SVG text as gensvg.c writes it: Symbol and ZapfDingbats through the
 //! Unicode tables, special text as `tspan`s, and `-z`.
 
-use rustfig_fig2dev::{convert, drivers, read::readfp_fig, Ctx};
+use fig2dev::{convert, drivers, read::readfp_fig, Ctx};
 
 fn run(font: i32, flags: i32, text: &str, extra: &[(char, Option<&str>)]) -> Result<String, String> {
     let fig = format!(

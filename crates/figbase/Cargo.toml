@@ -1,6 +1,6 @@
 [package]
 name = "figbase"
-description = "What fig2dev and RustFig share: Fig geometry, font tables and metrics, colours"
+description = "What the fig2dev port shares with RustFig: Fig geometry, font tables and metrics, colours"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -56,8 +56,8 @@ fn as_fig2dev() {
 
 #[test]
 fn unknown_option() {
-    let mut d = rustfig_fig2dev::drivers::driver("mf").unwrap();
-    let mut ctx = rustfig_fig2dev::Ctx::default();
+    let mut d = fig2dev::drivers::driver("mf").unwrap();
+    let mut ctx = fig2dev::Ctx::default();
     assert_eq!(
         d.option(&mut ctx, 'z', None).unwrap_err(),
         "Argument -z unknown to mf driver."
@@ -112,7 +112,7 @@ fn options() {
     assert_eq!(out, EXPECTED_OPTS);
 }
 
-/// Opt-in: `cargo test -p rustfig-fig2dev --test mf -- --ignored --nocapture`.
+/// Opt-in: `cargo test -p fig2dev --test mf -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {

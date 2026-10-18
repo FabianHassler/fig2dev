@@ -8,14 +8,14 @@
 //! thicknesses times round(THICK_SCALE) = 15, arrow thicknesses times
 //! THICK_SCALE, Fig 3.2 splines converted to lines.
 
-use rustfig_fig2dev::bound::{arc_bound, compound_bound, ellipse_bound, line_bound, text_bound, Bounds};
-use rustfig_fig2dev::gendev::depth_option;
-use rustfig_fig2dev::object::{
+use fig2dev::bound::{arc_bound, compound_bound, ellipse_bound, line_bound, text_bound, Bounds};
+use fig2dev::gendev::depth_option;
+use fig2dev::object::{
     Arc, Arrow, Compound, Control, DPoint, Ellipse, Line, Point, Spline, Text, T_BOX, T_CLOSED_XSPLINE, T_OPEN_XSPLINE,
     T_PIE_WEDGE_ARC, T_POLYLINE,
 };
-use rustfig_fig2dev::trans_spline::create_line_with_spline;
-use rustfig_fig2dev::Ctx;
+use fig2dev::trans_spline::create_line_with_spline;
+use fig2dev::Ctx;
 
 fn ctx() -> Ctx {
     Ctx {

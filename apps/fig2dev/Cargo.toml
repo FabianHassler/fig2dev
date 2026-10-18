@@ -1,6 +1,8 @@
 [package]
-name = "fig2dev"
-description = "fig2dev's command line on RustFig's ported drivers"
+# The package is `fig2dev-cli` because the library crate is `fig2dev`; the
+# installed program is still called `fig2dev` (see [[bin]]).
+name = "fig2dev-cli"
+description = "fig2dev's command line, a Rust port of fig2dev 3.2.9a"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,8 +10,12 @@ repository.workspace = true
 rust-version.workspace = true
 publish = false
 
+[[bin]]
+name = "fig2dev"
+path = "src/main.rs"
+
 [lints]
 workspace = true
 
 [dependencies]
-rustfig-fig2dev.workspace = true
+fig2dev.workspace = true

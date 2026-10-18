@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use rustfig_fig2dev::{convert, drivers, read::readfp_fig, Ctx};
+use fig2dev::{convert, drivers, read::readfp_fig, Ctx};
 
 pub const HDR: &str = "#FIG 3.2\nLandscape\nCenter\nInches\nLetter\n100.00\nSingle\n-2\n1200 2\n";
 
@@ -55,7 +55,7 @@ pub fn run(lang: &str, body: &str, opts: &[(char, Option<&str>)]) -> Result<(Str
 pub const FIG2DEV: &str = "/opt/homebrew/bin/fig2dev";
 
 fn old() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../old")
+    sources_dir()
 }
 
 /// fig2dev's test figures and every 25th figure of xfig's libraries
@@ -79,7 +79,9 @@ pub fn sample_figures() -> Vec<PathBuf> {
 }
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in rd.flatten() {
         let p = e.path();
         if p.is_dir() {
@@ -327,3 +329,10 @@ Inches
 	 3400 4100 3800 4300 4500 5100 5100 5100 6000 4000 6000 4400
 "##;
 pub const HAND: [&str; 5] = [LINES, BOXES, ELLARC, TEXT, SPLINES];
+
+/// Directory holding fig2dev-3.2.9a (and xfig-3.2.9a) sources: `$FIG2DEV_SOURCES`, else `<repo>/old`.
+fn sources_dir() -> std::path::PathBuf {
+    std::env::var_os("FIG2DEV_SOURCES")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../old"))
+}

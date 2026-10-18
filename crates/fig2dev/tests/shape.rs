@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! fig2dev's `shape` driver against output of the real fig2dev 3.2.9a.
 
-use rustfig_fig2dev::{convert, drivers, read::readfp_fig, Ctx};
+use fig2dev::{convert, drivers, read::readfp_fig, Ctx};
 
 const HDR: &str = "#FIG 3.2\nLandscape\nCenter\nInches\nLetter\n100.00\nSingle\n-2\n";
 

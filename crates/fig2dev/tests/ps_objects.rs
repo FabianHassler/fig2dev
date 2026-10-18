@@ -3,7 +3,7 @@
 //! thickness 0 or on pie wedges, single-point polylines, polylines with
 //! coincident ends closed, patterns filled with the nonzero rule.
 
-use rustfig_fig2dev::{convert, drivers, read::readfp_fig, Ctx};
+use fig2dev::{convert, drivers, read::readfp_fig, Ctx};
 
 fn run(lang: &str, body: &str) -> String {
     let fig = format!("#FIG 3.2\nLandscape\nCenter\nInches\nLetter\n100.00\nSingle\n-2\n1200 2\n{body}");

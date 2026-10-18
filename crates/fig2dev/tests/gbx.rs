@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! fig2dev's `gbx` driver against output of the real fig2dev 3.2.9a.
 
-use rustfig_fig2dev::{convert, drivers, read::readfp_fig, Ctx};
+use fig2dev::{convert, drivers, read::readfp_fig, Ctx};
 
 const HDR: &str = "#FIG 3.2\nLandscape\nCenter\nInches\nLetter\n100.00\nSingle\n-2\n";
 
@@ -918,7 +918,7 @@ fn language_and_grid_are_ignored() {
 
 /// Every object of `c` at its own depth: fig2dev's unstable `qsort` of the
 /// depths can't reorder anything.
-fn depths_unique(c: &rustfig_fig2dev::object::Compound, seen: &mut Vec<i32>) -> bool {
+fn depths_unique(c: &fig2dev::object::Compound, seen: &mut Vec<i32>) -> bool {
     let depths = c
         .arcs
         .iter()
@@ -960,7 +960,7 @@ pub fn real_fig2dev(lang: &str, path: &std::path::Path) -> Option<(String, Strin
 #[test]
 #[ignore]
 fn compare_with_real_fig2dev() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../old");
+    let root = sources_dir();
     let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(root.join("fig2dev-3.2.9a/fig2dev/tests/data"))
         .map(|d| d.flatten().map(|e| e.path()).collect())
         .unwrap_or_default();
@@ -1016,4 +1016,11 @@ fn compare_with_real_fig2dev() {
         failed.len()
     );
     assert!(failed.is_empty());
+}
+
+/// Directory holding fig2dev-3.2.9a (and xfig-3.2.9a) sources: `$FIG2DEV_SOURCES`, else `<repo>/old`.
+fn sources_dir() -> std::path::PathBuf {
+    std::env::var_os("FIG2DEV_SOURCES")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../old"))
 }

@@ -427,8 +427,8 @@ fn grid_and_margins() {
 
 #[test]
 fn bad_options() {
-    let mut ctx = rustfig_fig2dev::Ctx::default();
-    let mut dev = rustfig_fig2dev::drivers::driver("pstricks").unwrap();
+    let mut ctx = fig2dev::Ctx::default();
+    let mut dev = fig2dev::drivers::driver("pstricks").unwrap();
     assert!(dev.option(&mut ctx, 'Q', None).is_err());
     assert!(dev.option(&mut ctx, 'S', Some("13")).is_err());
     assert!(dev.option(&mut ctx, 'S', None).is_err());
@@ -490,7 +490,7 @@ fn hostile_values_dont_panic() {
     }
 }
 
-/// Opt-in: `cargo test -p rustfig-fig2dev --test pstricks -- --ignored --nocapture`.
+/// Opt-in: `cargo test -p fig2dev --test pstricks -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {

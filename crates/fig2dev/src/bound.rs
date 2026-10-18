@@ -242,7 +242,9 @@ fn compound_list_bound(ctx: &Ctx, list: &[Compound], include: bool) -> Bounds {
             merge(&mut acc, ellipse_bound(e));
         }
         for l in compound.lines.iter().filter(|l| !skip(l.depth)) {
-            let Some(b) = line_bound(ctx, l) else { continue };
+            let Some(b) = line_bound(ctx, l) else {
+                continue;
+            };
             // pictures have no line thickness; otherwise leave space for
             // the corners
             let half_wd = if l.type_ == T_PIC_BOX {
@@ -253,7 +255,9 @@ fn compound_list_bound(ctx: &Ctx, list: &[Compound], include: bool) -> Bounds {
             merge(&mut acc, pad(b, half_wd));
         }
         for s in compound.splines.iter().filter(|s| !skip(s.depth)) {
-            let Some(b) = spline_bound(ctx, s) else { continue };
+            let Some(b) = spline_bound(ctx, s) else {
+                continue;
+            };
             let half_wd = s.thickness.saturating_add(1) / 2;
             merge(&mut acc, pad(b, half_wd));
         }
@@ -452,7 +456,9 @@ fn int_spline_bound(s: &Spline) -> Option<Bounds> {
     let (mut sx, mut sy) = (p0.x as f64, p0.y as f64);
     let (mut bx, mut by) = (sx, sy);
     for (pp, cp) in s.points.windows(2).zip(s.controls.windows(2)) {
-        let ([p1, p2], [cp1, cp2]) = (pp, cp) else { continue };
+        let ([p1, p2], [cp1, cp2]) = (pp, cp) else {
+            continue;
+        };
         let (x0, y0) = (p1.x as f64, p1.y as f64);
         let (x1, y1) = (cp1.rx, cp1.ry);
         let (x2, y2) = (cp2.lx, cp2.ly);

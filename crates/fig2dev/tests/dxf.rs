@@ -381,7 +381,7 @@ fn metric_units_and_errors() {
     );
 }
 
-/// Opt-in: `cargo test -p rustfig-fig2dev --test dxf -- --ignored --nocapture`.
+/// Opt-in: `cargo test -p fig2dev --test dxf -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {

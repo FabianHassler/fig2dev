@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn tests_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../old/fig2dev-3.2.9a/fig2dev/tests")
+    sources_dir().join("fig2dev-3.2.9a/fig2dev/tests")
 }
 
 /// The arguments of the m4 macro call starting at `s[open]` == '(': split
@@ -250,9 +250,9 @@ fn languages(cmd: &str) -> Vec<String> {
 }
 
 /// Whether RustFig writes `lang`: RustFig's renderers, or a driver in
-/// rustfig-fig2dev.
+/// fig2dev.
 fn ported(lang: &str) -> bool {
-    PORTED.contains(&lang) || rustfig_fig2dev::drivers::driver(lang).is_some()
+    PORTED.contains(&lang) || fig2dev::drivers::driver(lang).is_some()
 }
 
 const PORTED: &[&str] = &[
@@ -346,13 +346,13 @@ fn run_case(case: &Case, bin_dir: &Path, work: &Path) -> Outcome {
 fn fig2dev_test_suite() {
     let dir = tests_dir();
     if !dir.exists() {
-        eprintln!("fig2dev's sources are not in old/; skipping");
+        eprintln!("fig2dev's sources are not found (set FIG2DEV_SOURCES); skipping");
         return;
     }
     let bin = PathBuf::from(env!("CARGO_BIN_EXE_fig2dev"));
     let bin_dir = bin.parent().unwrap().to_path_buf();
     let filter = std::env::var("RUSTFIG_SUITE_FILTER").unwrap_or_default();
-    let work = std::env::temp_dir().join(format!("rustfig-fig2dev-suite-{}", std::process::id()));
+    let work = std::env::temp_dir().join(format!("fig2dev-suite-{}", std::process::id()));
     let mut report = String::new();
     let (mut pass, mut fail, mut skipped, mut not_ported) = (0, 0, 0, 0);
     for file in ["input.at", "read.at", "output.at", "bitmaps.at"] {
@@ -388,6 +388,7 @@ fn fig2dev_test_suite() {
         "fig2dev's test suite on RustFig's fig2dev: {pass} pass, {fail} fail, {skipped} skipped, {not_ported} need a language not ported yet\n"
     );
     let out = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/fig2dev-suite.txt");
+    let _ = std::fs::create_dir_all(out.parent().unwrap());
     std::fs::write(&out, format!("{summary}\n{report}")).unwrap();
     eprintln!("{report}\n{summary}report: {}", out.display());
 }
@@ -403,4 +404,11 @@ fn m4_arguments_and_quotes() {
     assert_eq!(arg(&a[3]), "An open box - close it.\n");
     assert_eq!(languages("fig2dev -L pict2e x | y"), vec!["pict2e"]);
     assert_eq!(languages("fig2dev -Leps -F"), vec!["eps"]);
+}
+
+/// Directory holding fig2dev-3.2.9a (and xfig-3.2.9a) sources: `$FIG2DEV_SOURCES`, else `<repo>/old`.
+fn sources_dir() -> std::path::PathBuf {
+    std::env::var_os("FIG2DEV_SOURCES")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../old"))
 }

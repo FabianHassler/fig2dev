@@ -5,14 +5,14 @@
 
 use std::path::PathBuf;
 
-use rustfig_fig2dev::object::{Pic, Point, P_EPS, P_PCX, P_PNG, P_XBM};
-use rustfig_fig2dev::util::readpics::{
+use fig2dev::object::{Pic, Point, P_EPS, P_PCX, P_PNG, P_XBM};
+use fig2dev::util::readpics::{
     open_stream, pic_type, read_bitmap_file, read_pic, uncompress_lzw, Compression, PicType, RGB_NUMCOLS,
 };
-use rustfig_fig2dev::Ctx;
+use fig2dev::Ctx;
 
 fn data_dir() -> Option<PathBuf> {
-    let d = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../old/fig2dev-3.2.9a/fig2dev/tests/data");
+    let d = sources_dir().join("fig2dev-3.2.9a/fig2dev/tests/data");
     d.join("line.png.gz").exists().then_some(d)
 }
 
@@ -109,7 +109,7 @@ fn compressed_pictures_are_found_and_read() {
 
 #[test]
 fn missing_and_junk_pictures_are_errors() {
-    let dir = std::env::temp_dir().join(format!("rustfig-fig2dev-util-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("fig2dev-util-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let ctx = Ctx {
         dir: Some(dir.clone()),
@@ -141,7 +141,7 @@ fn missing_and_junk_pictures_are_errors() {
 /// `.Z` files: compare with the system's `compress`, where there is one.
 #[test]
 fn lzw_matches_compress() {
-    let dir = std::env::temp_dir().join(format!("rustfig-fig2dev-lzw-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("fig2dev-lzw-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     // Enough varied data to need wider codes and, with 9 bits, clear codes.
     let mut seed = 7u32;
@@ -173,4 +173,11 @@ fn lzw_matches_compress() {
         std::fs::remove_file(dir.join("data.txt.Z")).unwrap();
     }
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Directory holding fig2dev-3.2.9a (and xfig-3.2.9a) sources: `$FIG2DEV_SOURCES`, else `<repo>/old`.
+fn sources_dir() -> std::path::PathBuf {
+    std::env::var_os("FIG2DEV_SOURCES")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../old"))
 }

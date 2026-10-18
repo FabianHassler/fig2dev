@@ -48,7 +48,7 @@ fn eps_from_stdin_to_stdout() {
 
 #[test]
 fn language_from_the_output_suffix() {
-    let dir = std::env::temp_dir().join(format!("rustfig-fig2dev-cli-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("fig2dev-cli-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let input = dir.join("in.fig");
     std::fs::write(&input, FIG).unwrap();
@@ -326,7 +326,7 @@ fn picture_messages_are_fig2devs() {
 
 /// A scratch directory for one test.
 fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("rustfig-fig2dev-cli-{name}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("fig2dev-cli-{name}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }

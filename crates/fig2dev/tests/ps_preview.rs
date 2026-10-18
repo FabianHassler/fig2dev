@@ -2,7 +2,7 @@
 //! EPS previews and the user bounding box (genps.c: `-A`, `-T`, `-C`,
 //! `-B`, `-R`) and the bitmap options' messages (genbitmaps.c).
 
-use rustfig_fig2dev::{convert, drivers, read::readfp_fig, Ctx};
+use fig2dev::{convert, drivers, read::readfp_fig, Ctx};
 
 const FIG: &str = "#FIG 3.2\nLandscape\nCenter\nInches\nLetter\n100.00\nSingle\n-2\n1200 2\n\
 2 2 0 1 0 7 50 -1 -1 0.000 0 0 -1 0 0 5\n\t 0 0 900 0 900 450 0 450 0 0\n";

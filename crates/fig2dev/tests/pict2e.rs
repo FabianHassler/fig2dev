@@ -829,7 +829,7 @@ fn hostile_values_dont_panic() {
     }
 }
 
-/// Opt-in: `cargo test -p rustfig-fig2dev --test pict2e -- --ignored --nocapture`.
+/// Opt-in: `cargo test -p fig2dev --test pict2e -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {
