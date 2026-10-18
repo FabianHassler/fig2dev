@@ -218,7 +218,9 @@ impl Ctx {
             self.t3.len() - 1
         });
         let glyph = T3Glyph::new(t, ch);
-        let Some(fnt) = self.t3.get_mut(i) else { return (0, 1) };
+        let Some(fnt) = self.t3.get_mut(i) else {
+            return (0, 1);
+        };
         fnt.glyphs.push(glyph);
         (i, u8::try_from(fnt.glyphs.len()).unwrap_or(1))
     }
@@ -290,7 +292,9 @@ impl Ctx {
 
 fn text(c: &mut Ctx, t: &TextPrim) {
     let idx = base14_index(t);
-    let Some((res, _)) = BASE14.get(idx) else { return };
+    let Some((res, _)) = BASE14.get(idx) else {
+        return;
+    };
     let size = super::font_px(t.size) * c.k;
     let (x, y) = c.p(t.origin);
     let (s, co) = t.angle.sin_cos();

@@ -432,7 +432,9 @@ pub fn to_svg_page(
                 image,
                 flipped,
             } => {
-                let Some(png) = image_png(image) else { continue };
+                let Some(png) = image_png(image) else {
+                    continue;
+                };
                 let [tl, tr, _, bl] = *corners;
                 let (ex, ey) = if *flipped {
                     (bl - tl, tr - tl)

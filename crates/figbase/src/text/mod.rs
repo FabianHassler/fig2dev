@@ -78,7 +78,9 @@ fn library() -> &'static Library {
     LIB.get_or_init(|| {
         let mut faces = Vec::new();
         let mut add = |stem: &str, bytes: &'static [u8]| {
-            let Ok(face) = Face::parse(bytes, 0) else { return };
+            let Ok(face) = Face::parse(bytes, 0) else {
+                return;
+            };
             let mut family = String::new();
             for name in face.names() {
                 if name.name_id == ttf_parser::name_id::FULL_NAME || name.name_id == ttf_parser::name_id::FAMILY {
@@ -203,7 +205,9 @@ fn layout(req: &FontRequest, size_pt: f64, text: &str, outlines: bool) -> Shaped
         out.line_widths = widths;
         return out;
     };
-    let Some(lf) = lib.faces.get(idx) else { return out };
+    let Some(lf) = lib.faces.get(idx) else {
+        return out;
+    };
     let face = &lf.face;
     let scale = em / f64::from(face.units_per_em().max(1));
     let ascent = f64::from(face.ascender()) * scale;

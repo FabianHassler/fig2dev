@@ -93,7 +93,9 @@ impl LineKind {
             LineKind::Dotted => vec![dot, v],
             LineKind::DashDotted => vec![v, v * 0.5, dot, v * 0.5],
             LineKind::DashDoubleDotted => vec![v, v * 0.45, dot, v * 0.333, dot, v * 0.45],
-            LineKind::DashTripleDotted => vec![v, v * 0.4, dot, v * 0.3, dot, v * 0.3, dot, v * 0.4],
+            LineKind::DashTripleDotted => {
+                vec![v, v * 0.4, dot, v * 0.3, dot, v * 0.3, dot, v * 0.4]
+            }
         }
     }
 }

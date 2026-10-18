@@ -1,19 +1,19 @@
-RustFig
+fig2dev (Rust port)
 Copyright (c) 2026 The RustFig contributors
 
-RustFig is licensed under either of the Apache License, Version 2.0
-(LICENSE-APACHE) or the MIT license (LICENSE-MIT), at your option.
+The original code of this repository is licensed under either of the Apache
+License, Version 2.0 (LICENSE-APACHE) or the MIT license (LICENSE-MIT), at
+your option.
 
-RustFig is a Rust reimplementation of xfig. Its behaviour follows xfig's
-documentation and sources, and parts of it are ported from xfig and fig2dev
-(https://mcj.sourceforge.net/). xfig and fig2dev are (c) 1985-1988 Supoj
-Sutanthavibul, (c) 1991 Micah Beck, and Brian V. Smith, Paul King, Thomas
-Loimer and other contributors, under the xfig licence (SPDX: Xfig), which
-permits use, modification, sublicensing and redistribution provided the
-copyright and permission notice remain intact. That notice is reproduced
-in LICENSE-xfig, which also lists every RustFig file derived from xfig or
-fig2dev with its sources; each of those files names its sources in a
-comment and points to LICENSE-xfig.
+This is a Rust port of fig2dev 3.2.9a, and parts of it are ported from xfig
+and fig2dev (https://mcj.sourceforge.net/). xfig and fig2dev are (c)
+1985-1988 Supoj Sutanthavibul, (c) 1991 Micah Beck, and Brian V. Smith, Paul
+King, Thomas Loimer and other contributors, under the xfig licence (SPDX:
+Xfig), which permits use, modification, sublicensing and redistribution
+provided the copyright and permission notice remain intact. That notice is
+reproduced in LICENSE-xfig, which also lists every file derived from xfig or
+fig2dev with its sources; each of those files names its sources in a comment
+and points to LICENSE-xfig.
 
 X-splines are implemented from the published paper: C. Blanc and
 C. Schlick, "X-Splines: A Spline Model Designed for the End User",
@@ -22,13 +22,7 @@ SIGGRAPH '95.
 Assets
 ------
 This repository contains no image, icon or font files. Fill patterns and
-colour tables are generated in code; the mode panel icons are xfig's
-bitmaps from w_icons.c, kept as byte arrays in source code under the xfig
-licence (see ASSETS.md and LICENSE-xfig). The attribute pictures are also
-drawn as vectors in code (ui-egui/src/vector_icons.rs), RustFig's own work
-after xfig's compositions, and xfig's mode icons are traced as vectors
-(ui-egui/src/mode_icons.rs). The application icon is an original drawing
-generated in code (ui-egui/src/app_icon.rs), MIT OR Apache-2.0.
+colour tables are generated in code.
 
 Fonts used at run time
 ----------------------
@@ -36,7 +30,7 @@ Fonts used at run time
   sets CRAFT_FONTS_DIR; their licences ship with that repository.
 - Fallback: Ubuntu Light (Ubuntu Font Licence 1.0) and Hack (MIT/Bitstream
   Vera licence), bundled inside the `epaint_default_fonts` crate (a
-  dependency, MIT OR Apache-2.0), used for canvas and bitmap text.
+  dependency, MIT OR Apache-2.0).
 
 Third-party Rust crates are used under their own licences (MIT, Apache-2.0,
 BSD, Zlib and similar permissive licences); see Cargo.lock.

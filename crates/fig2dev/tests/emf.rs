@@ -4,7 +4,7 @@
 
 use std::process::Command;
 
-use rustfig_fig2dev::{convert, drivers, read::readfp_fig, Ctx};
+use fig2dev::{convert, drivers, read::readfp_fig, Ctx};
 
 const HDR: &str = "#FIG 3.2\nLandscape\nCenter\nInches\nLetter\n100.00\nSingle\n-2\n1200 2\n";
 
@@ -192,7 +192,7 @@ fn pictures_other_than_png_are_unsupported_and_missing_ones_reported() {
     assert!(!record_types(&b).contains(&81));
 }
 
-/// Opt-in: `cargo test -p rustfig-fig2dev --test emf -- --ignored`.
+/// Opt-in: `cargo test -p fig2dev --test emf -- --ignored`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {

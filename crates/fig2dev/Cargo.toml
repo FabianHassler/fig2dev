@@ -1,6 +1,6 @@
 [package]
-name = "rustfig-fig2dev"
-description = "fig2dev's object model, reader and output drivers, ported to Rust"
+name = "fig2dev"
+description = "fig2dev's object model, reader and output drivers, a Rust port of fig2dev 3.2.9a"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

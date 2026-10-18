@@ -7,9 +7,9 @@
 
 use std::path::{Path, PathBuf};
 
-use rustfig_fig2dev::object::*;
-use rustfig_fig2dev::read::readfp_fig;
-use rustfig_fig2dev::Ctx;
+use fig2dev::object::*;
+use fig2dev::read::readfp_fig;
+use fig2dev::Ctx;
 
 const TOP: &str = "#FIG 3.2\nLandscape\nCenter\nInches\nLetter\n100.00\nSingle\n-2\n1200 2\n";
 
@@ -500,7 +500,7 @@ fn fuzzed_input_never_panics() {
 }
 
 fn old() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../old")
+    sources_dir()
 }
 
 fn fig_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -593,4 +593,11 @@ fn messages_match_fig2dev() {
         }
     }
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+}
+
+/// Directory holding fig2dev-3.2.9a (and xfig-3.2.9a) sources: `$FIG2DEV_SOURCES`, else `<repo>/old`.
+fn sources_dir() -> std::path::PathBuf {
+    std::env::var_os("FIG2DEV_SOURCES")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../old"))
 }

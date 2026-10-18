@@ -14,7 +14,9 @@ fn collect(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     if depth > 8 || out.len() >= MAX_FONTS {
         return;
     }
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut entries: Vec<PathBuf> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
     entries.sort();
     for p in entries {

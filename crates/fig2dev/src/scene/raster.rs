@@ -119,7 +119,9 @@ fn draw_path(
     if !bb.expand(sw + 2.0).intersects(&view) {
         return;
     }
-    let Some(path) = build_path(subpaths, t) else { return };
+    let Some(path) = build_path(subpaths, t) else {
+        return;
+    };
     match fill {
         Some(Fill::Solid(c)) => pm.fill_path(&path, &paint(*c, aa), FillRule::EvenOdd, Transform::identity(), None),
         Some(Fill::Pattern { kind, fg, bg, nonzero }) => {

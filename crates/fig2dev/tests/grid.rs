@@ -2,7 +2,7 @@
 //! fig2dev's `-G` grid (genps.c `genps_grid`, fig2dev.c `get_args`): drawn
 //! by the PostScript, PDF and bitmap languages, not by SVG or the box.
 
-use rustfig_fig2dev::{convert, drivers, read::readfp_fig, Ctx};
+use fig2dev::{convert, drivers, read::readfp_fig, Ctx};
 
 const FIG: &str = "#FIG 3.2\nLandscape\nFlush left\nInches\nLetter\n100.00\nSingle\n-2\n1200 2\n2 2 0 1 0 7 50 -1 -1 0.000 0 0 -1 0 0 5\n\t 1200 1200 3600 1200 3600 2400 1200 2400 1200 1200\n";
 

@@ -260,7 +260,7 @@ fn errors() {
     assert_eq!(msgs, ["Couldn't open /nonexistent/pens"]);
 }
 
-/// Opt-in: `cargo test -p rustfig-fig2dev --test ibmgl -- --ignored --nocapture`.
+/// Opt-in: `cargo test -p fig2dev --test ibmgl -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {

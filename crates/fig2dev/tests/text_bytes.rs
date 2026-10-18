@@ -3,7 +3,7 @@
 //! the `\ooo` escapes, not UTF-8 (the reference outputs were taken from
 //! fig2dev 3.2.9a on macOS).
 
-use rustfig_fig2dev::{convert, drivers, read::readfp_fig, Ctx};
+use fig2dev::{convert, drivers, read::readfp_fig, Ctx};
 
 fn run(lang: &str, fig: &[u8], enc: Option<&str>) -> Vec<u8> {
     let mut ctx = Ctx {

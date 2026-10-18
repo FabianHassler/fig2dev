@@ -2,7 +2,7 @@
 //! Text beyond Latin-1 in PostScript (genps.c: Xfig-UTF8-H CMap, `composefont`
 //! `-UTF-8` fonts) and PDF (Type 3 fonts with a ToUnicode map).
 
-use rustfig_fig2dev::{convert, drivers, read::readfp_fig, Ctx};
+use fig2dev::{convert, drivers, read::readfp_fig, Ctx};
 
 fn run(lang: &str, text: &str, extra: &[(char, Option<&str>)]) -> Vec<u8> {
     let fig = format!(

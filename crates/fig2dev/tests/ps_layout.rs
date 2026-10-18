@@ -2,7 +2,7 @@
 //! The page layout of fig2dev's `ps` language and of `pdf` in page mode
 //! (genps.c, genpdf.c): paper sizes, orientation, centring, offsets, pages.
 
-use rustfig_fig2dev::{convert, drivers, read::readfp_fig, Ctx};
+use fig2dev::{convert, drivers, read::readfp_fig, Ctx};
 
 const BOX_AT: &str = "2 2 0 1 0 7 50 -1 -1 0.000 0 0 -1 0 0 5\n\t 1200 1200 3600 1200 3600 2400 1200 2400 1200 1200\n";
 
