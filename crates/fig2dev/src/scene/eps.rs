@@ -10,6 +10,7 @@
 // LICENSE-xfig). The UTF-8 text path (CMap, `composefont`, `-UTF-8` fonts)
 // is ported from genps.c (`note_text_needing_cmap`, `genps_text`).
 
+use super::output::{Meta, CREATOR};
 use super::pattern::{coverage, PatternFrame};
 use super::ps_cmap::{XFIG_CMAP1, XFIG_CMAP2, XFIG_CMAP3};
 use super::{EmbeddedEps, PageLayout};
@@ -169,9 +170,38 @@ fn utf8_fonts(scene: &Scene) -> std::collections::BTreeSet<&'static str> {
         .collect()
 }
 
-/// DSC resource comments, as genps writes them before `%%EndComments`.
-fn utf8_comments(out: &mut String, fonts: &std::collections::BTreeSet<&'static str>) {
-    if !fonts.is_empty() {
+/// `%%Title`, `%%Creator` and `%%CreationDate` (genps_start).
+fn dsc_head(out: &mut String, meta: &Meta<'_>) {
+    let _ = writeln!(out, "%%Title: {}", meta.title.replace(['\r', '\n'], " "));
+    let _ = writeln!(out, "%%Creator: {CREATOR}");
+    if let Some(d) = &meta.date {
+        let _ = writeln!(out, "%%CreationDate: {}", d.iso());
+    }
+}
+
+/// The whole-figure comments, between `%` lines, before the prolog
+/// (genps_start's `print_comments("% ", ...)`).
+fn figure_comments(out: &mut String, meta: &Meta<'_>) {
+    if meta.comments.is_empty() {
+        return;
+    }
+    out.push_str("%\n");
+    for c in meta.comments {
+        let _ = writeln!(out, "%  {c} ");
+    }
+    out.push_str("%\n");
+}
+
+/// DSC resource comments, as genps writes them before `%%EndComments`
+/// for any text beyond ASCII (`note_text_needing_cmap`; genps also sets
+/// them where this writer keeps Latin-1 text on the ISO-Latin-1 fonts, so
+/// the comment can name a CMap the prolog doesn't carry).
+fn utf8_comments(out: &mut String, scene: &Scene) {
+    let non_ascii = scene.prims.iter().any(|p| match p {
+        Prim::Text(t) => !t.text.is_ascii() && !matches!(font_name(t), "Symbol" | "ZapfDingbats"),
+        _ => false,
+    });
+    if non_ascii {
         out.push_str("%%DocumentNeededResources: ProcSet (CIDInit)\n%%+ CMap (Xfig-UTF8-H)\n");
         out.push_str("%%DocumentSuppliedResources: CMap (Xfig-UTF8-H)\n");
     }
@@ -508,14 +538,14 @@ fn draw_prims(c: &mut Ctx, scene: &Scene, embeds: &std::collections::BTreeMap<St
 }
 
 /// Render a scene as EPS covering `bounds` (Fig units) at `scale`.
-/// `title` goes into `%%Title` (fig2dev's `-n`).
+/// `meta` has the header comments (genps_start).
 /// `embeds` holds the EPS pictures to embed, by file name.
 pub fn to_eps(
     scene: &Scene,
     bounds: &Rect,
     scale: f64,
     background: Option<Rgba>,
-    title: Option<&str>,
+    meta: &Meta<'_>,
     embeds: &std::collections::BTreeMap<String, EmbeddedEps>,
 ) -> String {
     let b = if bounds.is_empty() {
@@ -532,17 +562,15 @@ pub fn to_eps(
         max_y: b.max.y,
     };
     let (w, h) = (b.width() * k, b.height() * k);
-    let _ = writeln!(c.out, "%!PS-Adobe-3.0 EPSF-3.0");
-    if let Some(t) = title {
-        let _ = writeln!(c.out, "%%Title: {}", t.replace(['\r', '\n'], " "));
-    }
-    let _ = writeln!(c.out, "%%Creator: RustFig");
+    c.out.push_str("%!PS-Adobe-3.0 EPSF-3.0\n");
+    dsc_head(&mut c.out, meta);
     let _ = writeln!(c.out, "%%BoundingBox: 0 0 {} {}", w.ceil() as i64, h.ceil() as i64);
-    let _ = writeln!(c.out, "%%HiResBoundingBox: 0 0 {} {}", n(w), n(h));
-    let _ = writeln!(c.out, "%%LanguageLevel: 2\n%%Pages: 1");
+    let _ = writeln!(c.out, "%%Magnification: {:.4}", meta.magnification);
     let fonts = utf8_fonts(scene);
-    utf8_comments(&mut c.out, &fonts);
-    c.out.push_str("%%EndComments\n%%BeginProlog\n");
+    utf8_comments(&mut c.out, scene);
+    c.out.push_str("%%EndComments\n");
+    figure_comments(&mut c.out, meta);
+    c.out.push_str("%%BeginProlog\n");
     utf8_cmap(&mut c.out, &fonts);
     prolog(&mut c.out);
     utf8_composefonts(&mut c.out, &fonts);
@@ -558,18 +586,16 @@ pub fn to_eps(
 
 /// Render a scene as a DSC PostScript document on `layout`'s pages:
 /// `bounds` (Fig units) at `scale` placed on each page as
-/// [`PageLayout::pages`] says, clipped to the paper. `magnification` is
-/// the figure's, for the `%%Magnification` comment.
+/// [`PageLayout::pages`] says, clipped to the paper.
 #[allow(clippy::too_many_arguments)]
 pub fn to_ps(
     scene: &Scene,
     bounds: &Rect,
     scale: f64,
     background: Option<Rgba>,
-    title: Option<&str>,
+    meta: &Meta<'_>,
     embeds: &std::collections::BTreeMap<String, EmbeddedEps>,
     layout: &PageLayout,
-    magnification: f64,
 ) -> String {
     let b = if bounds.is_empty() {
         Rect::new(Point::ZERO, Point::new(1.0, 1.0))
@@ -588,22 +614,21 @@ pub fn to_ps(
     let body = std::mem::take(&mut c.out);
     let (pw, ph) = (layout.width, layout.height);
     let o = &mut c.out;
-    let _ = writeln!(o, "%!PS-Adobe-3.0");
-    if let Some(t) = title {
-        let _ = writeln!(o, "%%Title: {}", t.replace(['\r', '\n'], " "));
-    }
-    let _ = writeln!(o, "%%Creator: RustFig");
+    o.push_str("%!PS-Adobe-3.0\n");
+    dsc_head(o, meta);
     let _ = writeln!(o, "%%Pages: {}", layout.declared_pages);
     let _ = writeln!(o, "%%BoundingBox: 0 0 {pw} {ph}");
     let _ = writeln!(o, "%%DocumentPaperSizes: {}", layout.paper.to_ascii_lowercase());
-    let _ = writeln!(o, "%%Magnification: {magnification:.4}");
+    let _ = writeln!(o, "%%Magnification: {:.4}", meta.magnification);
     let fonts = utf8_fonts(scene);
-    utf8_comments(o, &fonts);
+    utf8_comments(o, scene);
     o.push_str("%%EndComments\n");
     o.push_str("%%BeginSetup\n[{\n");
     let _ = writeln!(o, "%%BeginFeature: *PageSize {}", layout.paper);
     let _ = writeln!(o, "<</PageSize [{pw} {ph}]>> setpagedevice");
-    o.push_str("%%EndFeature\n} stopped cleartomark\n%%EndSetup\n%%BeginProlog\n");
+    o.push_str("%%EndFeature\n} stopped cleartomark\n%%EndSetup\n");
+    figure_comments(o, meta);
+    o.push_str("%%BeginProlog\n");
     utf8_cmap(o, &fonts);
     prolog(o);
     utf8_composefonts(o, &fonts);

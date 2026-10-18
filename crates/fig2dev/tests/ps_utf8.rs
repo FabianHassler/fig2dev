@@ -37,7 +37,10 @@ fn greek_in_eps_uses_the_cmap_and_a_composite_font() {
 #[test]
 fn latin1_text_in_eps_stays_on_the_iso_fonts() {
     let s = String::from_utf8(run("eps", "café", &[])).unwrap();
-    assert!(!s.contains("CMap") && !s.contains("composefont"));
+    // The header names the CMap as genps does (`note_text_needing_cmap`);
+    // the prolog carries none.
+    let (_, body) = s.split_once("%%EndComments\n").unwrap();
+    assert!(!body.contains("CMap") && !body.contains("composefont"));
     assert!(s.contains("(caf\\351) show"));
 }
 

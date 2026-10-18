@@ -8,8 +8,10 @@
 // `dingbatchar`, `gensvg_start`'s paper size) (xfig licence, see
 // LICENSE-xfig).
 
+use super::output::{Meta, CREATOR};
 use super::pattern::{coverage, PatternFrame};
 use super::{Fill, Prim, Rgba, Scene, Stroke, SubPath, TextPrim};
+use crate::drivers::dxf::fmt_g;
 use figbase::geom::{Point, Rect, Seg};
 use figbase::image::RasterImage;
 use figbase::style::{CapStyle, JoinStyle, Justify};
@@ -334,7 +336,7 @@ pub(crate) fn image_png(img: &RasterImage) -> Option<Vec<u8>> {
 /// Render a scene as an SVG document covering `bounds` (Fig units), sized
 /// at `scale` (1.0 = actual size).
 pub fn to_svg(scene: &Scene, bounds: &Rect, scale: f64, background: Option<Rgba>) -> String {
-    to_svg_page(scene, bounds, scale, background, None)
+    to_svg_page(scene, bounds, scale, background, None, &Meta::default())
 }
 
 /// [`to_svg`] with `-z`: the size of the paper in points (gensvg_start sets
@@ -345,6 +347,7 @@ pub fn to_svg_page(
     scale: f64,
     background: Option<Rgba>,
     paper: Option<(i32, i32)>,
+    meta: &Meta<'_>,
 ) -> String {
     let b = if bounds.is_empty() {
         Rect::new(Point::ZERO, Point::new(1.0, 1.0))
@@ -353,23 +356,32 @@ pub fn to_svg_page(
     };
     let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
     let mut out = String::new();
-    let _ = writeln!(out, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+    // gensvg_start: PREAMBLE, comments, <svg> with the size in points.
+    out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n");
+    let _ = writeln!(out, "<!-- Creator: {CREATOR} -->");
+    if let Some(d) = &meta.date {
+        let _ = writeln!(out, "<!-- CreationDate: {} -->", d.iso());
+    }
+    let _ = writeln!(out, "<!-- Magnification: {} -->", fmt_g(meta.mag, 3));
     let (w, h) = match paper {
-        Some((w, h)) => (format!("{w}pt"), format!("{h}pt")),
+        Some((w, h)) => (w, h),
         None => (
-            format!("{}in", n(b.width() / 1200.0 * scale)),
-            format!("{}in", n(b.height() / 1200.0 * scale)),
+            (b.width() * 72.0 / 1200.0 * scale).ceil() as i32,
+            (b.height() * 72.0 / 1200.0 * scale).ceil() as i32,
         ),
     };
     let _ = writeln!(
         out,
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"{w}\" height=\"{h}\" viewBox=\"{} {} {} {}\">",
+        "<svg\txmlns=\"http://www.w3.org/2000/svg\"\n\txmlns:xlink=\"http://www.w3.org/1999/xlink\"\n\twidth=\"{w}pt\" height=\"{h}pt\"\n\tviewBox=\"{} {} {} {}\">",
         n(b.min.x),
         n(b.min.y),
         n(b.width()),
         n(b.height())
     );
-    let _ = writeln!(out, "<!-- Produced by RustFig -->");
+    for c in meta.comments {
+        let _ = writeln!(out, "<desc>{}</desc>", sanitized(c));
+    }
+    out.push_str("<g fill=\"none\">\n");
     if let Some(bg) = background {
         let _ = writeln!(
             out,
@@ -458,8 +470,22 @@ pub fn to_svg_page(
             }
         }
     }
-    out.push_str("</svg>\n");
+    out.push_str("</g>\n</svg>\n");
     out
+}
+
+/// `put_sanitized_char` over a comment.
+fn sanitized(s: &str) -> String {
+    let mut o = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '<' => o.push_str("&lt;"),
+            '>' => o.push_str("&gt;"),
+            '&' => o.push_str("&amp;"),
+            c => o.push(c),
+        }
+    }
+    o
 }
 
 fn n6(v: f64) -> String {

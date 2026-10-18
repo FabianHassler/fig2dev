@@ -20,10 +20,11 @@ use crate::object::{Arc, Compound, Ellipse, Line, Spline, Text};
 use crate::options::{option_spec, parse_options, Arg, DriverOptions, OptionValue, Support};
 use crate::scene::build::{file_scale, transparent_color, Builder, TextOptions};
 use crate::scene::grid::{grid_prims, GridSpec};
-use crate::scene::output::write_with_notes;
+use crate::scene::output::{write_with_notes, Meta};
 use crate::scene::page::paper;
 use crate::scene::preview::{PreviewKind, UserBox};
 use crate::scene::{ExportFormat, Page, PageInput, PageLayout, Rgba};
+use crate::util::creationdate::creation_time;
 use crate::{Ctx, Driver, Out};
 use figbase::color::x_color;
 use figbase::geom::{Point, Rect};
@@ -503,6 +504,12 @@ impl Driver for SceneDriver {
         } else {
             None
         };
+        // genps_start and gensvg_start ask for the date (the bitmaps don't).
+        let date = if matches!(self.format, ExportFormat::Eps | ExportFormat::Pdf | ExportFormat::Svg) {
+            creation_time(ctx)
+        } else {
+            None
+        };
         let (bytes, notes) = write_with_notes(
             &scene,
             self.format,
@@ -510,7 +517,18 @@ impl Driver for SceneDriver {
                 bounds,
                 scale,
                 background: bg,
-                title: o.title.as_deref(),
+                meta: Meta {
+                    title: o
+                        .title
+                        .clone()
+                        .or_else(|| ctx.name.clone())
+                        .or_else(|| ctx.from.clone())
+                        .unwrap_or_else(|| "stdin".to_string()),
+                    date,
+                    magnification: if ctx.metric { ctx.mag * 76.2 / 80.0 } else { ctx.mag },
+                    mag: ctx.mag,
+                    comments: &self.comments,
+                },
                 embedded_eps: &b.embedded_eps,
                 comments: &self.comments,
                 // genbitmaps: ghostscript at 80 dpi times the magnification.
@@ -521,7 +539,6 @@ impl Driver for SceneDriver {
                 layout,
                 pdf_minor: self.pdf_minor,
                 svg_paper,
-                magnification: if ctx.metric { ctx.mag * 76.2 / 80.0 } else { ctx.mag },
                 bbox: o
                     .bbox
                     .as_deref()
