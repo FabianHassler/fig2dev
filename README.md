@@ -2,7 +2,7 @@
 
 A Rust port of [fig2dev](https://mcj.sourceforge.net/) 3.2.9a, the converter that turns xfig's Fig files into PostScript, PDF, SVG, LaTeX and many other formats. The `fig2dev` program here is a drop-in replacement: it follows fig2dev's command line, messages and exit codes. It has no C dependencies and builds on macOS, Linux and Windows; the library also compiles to WebAssembly.
 
-It was developed as part of [RustFig](https://github.com/fahasch/rustfig), a Rust reimplementation of xfig, which uses it as a library.
+It was developed as part of [RustFig](https://github.com/FabianHassler/rustfig), a Rust reimplementation of xfig, which uses it as a library.
 
 ## Contents
 
