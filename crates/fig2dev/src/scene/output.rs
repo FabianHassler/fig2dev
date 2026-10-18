@@ -101,6 +101,28 @@ pub struct EmbeddedEps {
     pub ps: Vec<u8>,
 }
 
+/// The program name and version fig2dev writes into its headers
+/// (`%%Creator`, the PDF's `/Creator`, SVG's `Creator` comment).
+pub const CREATOR: &str = "fig2dev Version 3.2.9a";
+
+/// What the headers of EPS, PostScript, PDF and SVG say besides the
+/// drawing (genps_start, gensvg_start; genpdf takes it from genps's DSC
+/// comments through ghostscript).
+#[derive(Debug, Clone, Default)]
+pub struct Meta<'a> {
+    /// `%%Title` and the PDF's `/Title`: `-n`, else the input file's name,
+    /// else "stdin".
+    pub title: String,
+    /// The creation date (UTC); `None` leaves the date lines out.
+    pub date: Option<crate::util::creationdate::DateTime>,
+    /// `%%Magnification` of PostScript (metric figures corrected).
+    pub magnification: f64,
+    /// The figure's magnification as SVG's `Magnification` comment has it.
+    pub mag: f64,
+    /// The whole-figure comments (PostScript and SVG copy them).
+    pub comments: &'a [String],
+}
+
 /// Region covered by an export: the drawing's bounds plus the margin.
 pub fn export_bounds(scene: &Scene, margin: f64) -> Rect {
     let m = if margin.is_finite() {
@@ -120,8 +142,8 @@ pub struct Page<'a> {
     pub scale: f64,
     /// Background colour; `None` is transparent (bitmaps) or none.
     pub background: Option<Rgba>,
-    /// `-n`: the title of EPS and PDF output.
-    pub title: Option<&'a str>,
+    /// The header data of EPS, PostScript, PDF and SVG output.
+    pub meta: Meta<'a>,
     /// EPS pictures to embed in EPS output, by the picture's file name.
     pub embedded_eps: &'a BTreeMap<String, EmbeddedEps>,
     /// The whole-figure comments (written by the LaTeX box).
@@ -140,8 +162,6 @@ pub struct Page<'a> {
     pub layout: Option<super::PageLayout>,
     /// The PDF version 1.n (`-Y`).
     pub pdf_minor: u8,
-    /// The figure's magnification, for PostScript's `%%Magnification`.
-    pub magnification: f64,
     /// EPS: the user's bounding box (`-B`, `-R`).
     pub bbox: Option<UserBox<'a>>,
     /// EPS and PostScript: a preview (`-A`, `-T`, `-C`).
@@ -209,20 +229,11 @@ pub fn write_with_notes(
     let (bounds, scale, bg) = (&page.bounds, page.scale, page.background);
     let mut notes = Vec::new();
     let bytes = match format {
-        ExportFormat::Svg => svg::to_svg_page(scene, bounds, scale, bg, page.svg_paper).into_bytes(),
+        ExportFormat::Svg => svg::to_svg_page(scene, bounds, scale, bg, page.svg_paper, &page.meta).into_bytes(),
         ExportFormat::Eps => {
             let mut text = match &page.layout {
-                Some(l) => eps::to_ps(
-                    scene,
-                    bounds,
-                    scale,
-                    bg,
-                    page.title,
-                    page.embedded_eps,
-                    l,
-                    page.magnification,
-                ),
-                None => eps::to_eps(scene, bounds, scale, bg, page.title, page.embedded_eps),
+                Some(l) => eps::to_ps(scene, bounds, scale, bg, &page.meta, page.embedded_eps, l),
+                None => eps::to_eps(scene, bounds, scale, bg, &page.meta, page.embedded_eps),
             };
             let pt = 72.0 / 1200.0 * scale;
             let fig_pt = (bounds.width() * pt, bounds.height() * pt);
@@ -270,7 +281,7 @@ pub fn write_with_notes(
             bounds,
             scale,
             bg,
-            page.title,
+            &page.meta,
             page.layout.as_ref(),
             page.pdf_minor,
         ),

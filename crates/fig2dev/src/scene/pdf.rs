@@ -1,6 +1,7 @@
 //! PDF backend (pdf-writer). Text uses the standard 14 PDF fonts; characters
 //! beyond WinAnsi are set in Type 3 fonts built from RustFig's glyph outlines.
 
+use super::output::{Meta, CREATOR};
 use super::pattern::{coverage, PatternFrame};
 use super::{Fill, PageLayout, Prim, Rgba, Scene, Stroke, SubPath, TextPrim};
 use figbase::geom::{Point, Rect, Seg};
@@ -8,7 +9,7 @@ use figbase::image::RasterImage;
 use figbase::style::{CapStyle, JoinStyle, Justify};
 use pdf_writer::types::{LineCapStyle, LineJoinStyle};
 use pdf_writer::types::{SystemInfo, UnicodeCmap};
-use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect as PdfRect, Ref, Str, TextStr};
+use pdf_writer::{Content, Date, Filter, Finish, Name, Pdf, Rect as PdfRect, Ref, Str, TextStr};
 
 /// The standard fonts used for text, by resource name.
 const BASE14: [(&str, &str); 14] = [
@@ -404,7 +405,11 @@ fn image(c: &mut Ctx, corners: &[Point; 4], img: &RasterImage, flipped: bool, im
 /// Render a scene as a one-page PDF covering `bounds` (Fig units) at `scale`.
 /// `title` becomes the document's `/Title` (fig2dev's `-n`).
 pub fn to_pdf(scene: &Scene, bounds: &Rect, scale: f64, background: Option<Rgba>, title: Option<&str>) -> Vec<u8> {
-    to_pdf_pages(scene, bounds, scale, background, title, None, 5)
+    let meta = Meta {
+        title: title.unwrap_or_default().to_string(),
+        ..Meta::default()
+    };
+    to_pdf_pages(scene, bounds, scale, background, &meta, None, 5)
 }
 
 /// Like [`to_pdf`]; with a `layout` the figure goes on its pages (fig2dev's
@@ -416,7 +421,7 @@ pub fn to_pdf_pages(
     bounds: &Rect,
     scale: f64,
     background: Option<Rgba>,
-    title: Option<&str>,
+    meta: &Meta<'_>,
     layout: Option<&PageLayout>,
     minor: u8,
 ) -> Vec<u8> {
@@ -681,9 +686,24 @@ pub fn to_pdf_pages(
             s.finish();
         }
     }
-    if let Some(t) = title {
-        pdf.document_info(Ref::new(next)).title(TextStr(t));
+    // What ghostscript's pdfwrite takes from genps's DSC comments.
+    let mut info = pdf.document_info(Ref::new(next));
+    info.title(TextStr(&meta.title.replace(['\r', '\n'], " ")));
+    info.creator(TextStr(CREATOR));
+    info.producer(TextStr("fig2dev (Rust)"));
+    if let Some(d) = &meta.date {
+        let date = || {
+            Date::new(u16::try_from(d.year).unwrap_or(0))
+                .month(d.month as u8)
+                .day(d.day as u8)
+                .hour(d.hour as u8)
+                .minute(d.minute as u8)
+                .second(d.second as u8)
+        };
+        info.creation_date(date());
+        info.modified_date(date());
     }
+    info.finish();
     pdf.finish()
 }
 
