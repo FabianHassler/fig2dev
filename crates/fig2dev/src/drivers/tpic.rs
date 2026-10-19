@@ -18,7 +18,7 @@ use crate::object::{
     T_ARC_BOX, T_BOX, T_CENTER_JUSTIFIED, T_LEFT_JUSTIFIED, T_OPEN_ARC, T_POLYGON, T_RIGHT_JUSTIFIED, WHITE_FILL,
 };
 use crate::util::psfonts::unpsfont;
-use crate::{fprintf, round, Driver, Out};
+use crate::{fprintf, round, round_mul, Driver, Out};
 
 /// The top of the page, inches.
 const TOP: f64 = 10.5;
@@ -245,8 +245,8 @@ impl Tpic {
                 y1,
                 (x1 + a2) / 2.0,
                 (y1 + b2) / 2.0,
-                (3.0 * a2 + a3) / 4.0,
-                (3.0 * b2 + b3) / 4.0,
+                3.0_f64.mul_add(a2, a3) / 4.0,
+                3.0_f64.mul_add(b2, b3) / 4.0,
                 xmid,
                 ymid,
             ];
@@ -258,8 +258,8 @@ impl Tpic {
             let c = [
                 xmid,
                 ymid,
-                (a2 + 3.0 * a3) / 4.0,
-                (b2 + 3.0 * b3) / 4.0,
+                3.0_f64.mul_add(a3, a2) / 4.0,
+                3.0_f64.mul_add(b3, b2) / 4.0,
                 (a3 + x4) / 2.0,
                 (b3 + y4) / 2.0,
                 x4,
@@ -333,8 +333,8 @@ impl Tpic {
         let (mut x1, mut y1, mut x2, mut y2) = (ax, ay, b.0, b.1);
         let mut cx1 = (x1 + x2) / 2.0;
         let mut cy1 = (y1 + y2) / 2.0;
-        let mut cx2 = (x1 + 3.0 * x2) / 4.0;
-        let mut cy2 = (y1 + 3.0 * y2) / 4.0;
+        let mut cx2 = 3.0_f64.mul_add(x2, x1) / 4.0;
+        let mut cy2 = 3.0_f64.mul_add(y2, y1) / 4.0;
 
         self.set_linewidth(out, s.thickness);
         Tpic::set_texture(out, s.fill_style); // probably won't work!
@@ -347,8 +347,8 @@ impl Tpic {
             y1 = y2;
             x2 = p.0;
             y2 = p.1;
-            let cx3 = (3.0 * x1 + x2) / 4.0;
-            let cy3 = (3.0 * y1 + y2) / 4.0;
+            let cx3 = 3.0_f64.mul_add(x1, x2) / 4.0;
+            let cy3 = 3.0_f64.mul_add(y1, y2) / 4.0;
             let cx4 = (x1 + x2) / 2.0;
             let cy4 = (y1 + y2) / 2.0;
             Tpic::quadratic_spline(out, [cx1, cy1, cx2, cy2, cx3, cy3, cx4, cy4], 0);
@@ -362,8 +362,8 @@ impl Tpic {
             out.puts("\n");
             cx1 = cx4;
             cy1 = cy4;
-            cx2 = (x1 + 3.0 * x2) / 4.0;
-            cy2 = (y1 + 3.0 * y2) / 4.0;
+            cx2 = 3.0_f64.mul_add(x2, x1) / 4.0;
+            cy2 = 3.0_f64.mul_add(y2, y1) / 4.0;
         }
     }
 
@@ -602,7 +602,8 @@ impl Driver for Tpic {
 
         let mut t = text.clone();
         unpsfont(ctx, &mut t);
-        let size = t.size * if t.rigid_text() { 1.0 } else { ctx.fontmag };
+        let mag = if t.rigid_text() { 1.0 } else { ctx.fontmag };
+        let size = t.size * mag;
         if t.font > MAX_FONT || self.vfont {
             // Virtual fonts are defined with TeX's font machinery.
             let f = self.texfont(t.font);
@@ -610,7 +611,7 @@ impl Driver for Tpic {
         } else {
             // `TEXFONTMAG`.
             let i = if size <= MAXFONTSIZE {
-                usize::try_from(round(size)).unwrap_or(0)
+                usize::try_from(round_mul(t.size, mag)).unwrap_or(0)
             } else {
                 MAXFONTSIZE as usize
             };
@@ -633,7 +634,7 @@ impl Driver for Tpic {
             .get(if i.is_finite() && i >= 0.0 { i as usize } else { 0 })
             .copied()
             .unwrap_or(TEX_FONT_SIZES_INT[0]);
-        let y = (convy(self.inch(t.base_y)) + f64::from(pts) * HT_OFFSET) as f32;
+        let y = f64::from(pts).mul_add(HT_OFFSET, convy(self.inch(t.base_y))) as f32;
         out.bytes(&t.raw);
         fprintf!(out, "\" at {:.3},{:.3} {}\n", self.inch(t.base_x), f64::from(y), tpos);
         Ok(())

@@ -18,7 +18,7 @@ use crate::object::{
     T_CIRCLE_BY_RAD, T_ELLIPSE_BY_DIA, T_ELLIPSE_BY_RAD, T_LEFT_JUSTIFIED, T_OPEN_ARC, T_PIC_BOX, T_PIE_WEDGE_ARC,
     T_POLYGON, T_POLYLINE, T_RIGHT_JUSTIFIED,
 };
-use crate::{fprintf, round, Out};
+use crate::{fprintf, round, round_mul, Out};
 use std::f64::consts::PI;
 
 /// The driver for `lang`.
@@ -534,7 +534,8 @@ impl Cgm {
             _ => 0.0,
         };
         if self.rounded_arrows {
-            len -= arrow_extra_len(a);
+            // `len -= ARROW_EXTRA_LEN(a)`, fused as clang does.
+            len = (-(a.ht / a.wid)).mul_add(a.thickness, len);
         }
         len
     }
@@ -812,8 +813,8 @@ impl Cgm {
             return;
         }
         self.textangle = angle;
-        let c = round(1200.0 * angle.cos());
-        let s = round(1200.0 * angle.sin());
+        let c = round_mul(1200.0, angle.cos());
+        let s = round_mul(1200.0, angle.sin());
         fprintf!(out, "charori ({},{}) ({},{});\n", s.wrapping_neg(), c, c, s);
     }
 }

@@ -23,7 +23,7 @@ use crate::object::{
 };
 use crate::util::latex::LatexColor;
 use crate::util::texfonts::{put_string, TexFonts};
-use crate::{fprintf, round, Driver, Out};
+use crate::{fprintf, round, round_mul, Driver, Out};
 
 /// A dot for lines at `\thinlines` and `\thicklines`.
 const THINDOT: &str = "\\small.";
@@ -122,7 +122,8 @@ impl fmt::Display for Cf {
 
 /// `round4`: rounded to 4 decimals.
 fn round4(x: f64) -> f64 {
-    f64::from(round(10000.0 * x)) / 10000.0
+    // `round(10000.0*(x))`: the product is fused with the macro's `+ .5` (as clang does).
+    f64::from(round_mul(10000.0, x)) / 10000.0
 }
 
 /// `translate2`: Fig coordinates to the picture's (y up, from `TOP`).
@@ -156,8 +157,10 @@ pub fn get_slope(dx: i32, dy: i32, arrow: bool) -> (i32, i32) {
 /// the cosine of its angle.
 fn line_end(x: i32, y: i32, sx: i32, sy: i32, l: f64) -> (i32, i32, f64) {
     if sx != 0 {
-        let cosine =
-            f64::from(sx.wrapping_abs()) / (f64::from(sx) * f64::from(sx) + f64::from(sy) * f64::from(sy)).sqrt();
+        let cosine = f64::from(sx.wrapping_abs())
+            / f64::from(sx)
+                .mul_add(f64::from(sx), f64::from(sy) * f64::from(sy))
+                .sqrt();
         let x2 = if sx >= 0 {
             x.wrapping_add(round(l))
         } else {
@@ -382,7 +385,7 @@ impl Latex {
             return;
         }
         let half = n / 2;
-        let dg = (l - f64::from(half.wrapping_add(1)) * dl) / f64::from(half);
+        let dg = (-f64::from(half.wrapping_add(1))).mul_add(dl, l) / f64::from(half);
         let (dx, dy) = if sx != 0 {
             let dx = if sx < 0 { -(dl + dg) } else { dl + dg };
             (dx, dx * f64::from(sy) / f64::from(sx))
@@ -408,7 +411,10 @@ impl Latex {
     #[allow(clippy::too_many_arguments)]
     fn put_dotline(&self, out: &mut Out, mut x: i32, mut y: i32, sx: i32, sy: i32, l: f64, arrow: i32, val: f64) {
         let cosine = if sx != 0 {
-            f64::from(sx.wrapping_abs()) / (f64::from(sx) * f64::from(sx) + f64::from(sy) * f64::from(sy)).sqrt()
+            f64::from(sx.wrapping_abs())
+                / f64::from(sx)
+                    .mul_add(f64::from(sx), f64::from(sy) * f64::from(sy))
+                    .sqrt()
         } else {
             1.0
         };
@@ -464,8 +470,8 @@ impl Latex {
             ady
         } else {
             let m = f64::from(sy).abs() / f64::from(sx).abs();
-            let l = (adx + m * ady) / (1.0 + m * m);
-            let deviation = (l - adx).abs() + (m * l - ady).abs();
+            let l = m.mul_add(ady, adx) / m.mul_add(m, 1.0);
+            let deviation = (l - adx).abs() + m.mul_add(l, -ady).abs();
             if deviation > TOLERANCE {
                 ctx.warn(format!(
                     "Not a LaTeX slope ({dx}, {dy}), deviation {deviation:.1} pixels"
@@ -525,7 +531,7 @@ impl Latex {
         match style {
             SOLID_LINE => fprintf!(out, "\\put({:3},{:3}){{\\framebox({},{}){{}}}}\n", llx, lly, w, h),
             DASH_LINE => {
-                let dlen = round(val * self.dash_mag);
+                let dlen = round_mul(val, self.dash_mag);
                 fprintf!(
                     out,
                     "\\put({:3},{:3}){{\\dashbox{{{}}}({},{}){{}}}}\n",
@@ -610,7 +616,7 @@ impl Driver for Latex {
         fprintf!(
             out,
             "\\setlength{{\\unitlength}}{{{}sp}}%\n",
-            round(4736286.72 * self.unitlength)
+            round_mul(4736286.72, self.unitlength)
         );
         fprintf!(
             out,
@@ -662,7 +668,7 @@ impl Driver for Latex {
         if angle2 < 0.0 {
             angle2 += 360.0;
         }
-        let r = (v1x * v1x + v1y * v1y).sqrt();
+        let r = v1x.mul_add(v1x, v1y * v1y).sqrt();
         // Where the arc meets the axes through the centre.
         let pq = [
             Point::new(round(cx), round(cy + r)),
@@ -674,8 +680,8 @@ impl Driver for Latex {
         // indexes past its tables there).
         let q1 = (angle1 / 90.0) as i32;
         let q2 = (angle2 / 90.0) as i32;
-        if (angle1 - 90.0 * f64::from(q1)).abs() > ARC_TOLERANCE
-            || (angle2 - 90.0 * f64::from(q2)).abs() > ARC_TOLERANCE
+        if (-90.0f64).mul_add(f64::from(q1), angle1).abs() > ARC_TOLERANCE
+            || (-90.0f64).mul_add(f64::from(q2), angle2).abs() > ARC_TOLERANCE
         {
             ctx.warn("Approximating arc by ovals");
         }

@@ -73,6 +73,13 @@ pub fn round(x: f64) -> i32 {
     (if x >= 0.0 { x + 0.5 } else { x - 0.5 }) as i32
 }
 
+/// `round(a*b)`: the macro's `+ .5` is fused with the product, as clang
+/// compiles it (`-ffp-contract=on`).
+pub fn round_mul(a: f64, b: f64) -> i32 {
+    let half = if a * b >= 0.0 { 0.5 } else { -0.5 };
+    a.mul_add(b, half) as i32
+}
+
 #[cfg(test)]
 mod round_tests {
     use super::round;

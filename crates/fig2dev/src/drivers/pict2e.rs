@@ -92,12 +92,7 @@ const PICT2EARROW: [(f64, f64); 30] = [
     (0., 0.5),  // type 14b backward two-prong fork
 ];
 
-/// `round(a*b)` as clang compiles fig2dev's `round()` macro: the product
-/// and the ±0.5 fused, the sign taken from the rounded product.
-pub(crate) fn round_mul(a: f64, b: f64) -> i32 {
-    let half = if a * b >= 0.0 { 0.5 } else { -0.5 };
-    a.mul_add(b, half) as i32
-}
+pub(crate) use crate::round_mul;
 
 /// `sqrt(x*x + y*y)`, contracted.
 fn hypot_fma(x: f64, y: f64) -> f64 {
