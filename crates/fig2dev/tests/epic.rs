@@ -223,3 +223,17 @@ fn same_as_fig2dev() {
         }
     }
 }
+
+/// Audit pass 25b: the arc's points `ctr.x + cos(th)*r` are fused as clang
+/// does; unfused, the first point's x is `0.000`, not `-0.000`
+/// (checked against the reference on a random figure).
+#[test]
+fn arc_points_are_fused_like_the_reference() {
+    let arc =
+        "5 1 2 0 4 7 47 -1 50 3.0 0 1 1 1 564.5 1726.5 237 1830 513 2065 906 1753\n\t0 1 3 60 90\n\t2 1 2 150 120\n";
+    let (out, _, _) = run("epic", arc, &[]).unwrap();
+    assert!(
+        out.contains("\\drawline(-0.000,240.000)(32.191,168.111)(79.914,105.446)\n"),
+        "{out}"
+    );
+}

@@ -19,7 +19,7 @@ use crate::gendev::Ctx;
 use crate::object::{Text, MAX_FONT, MAX_PSFONT};
 use crate::util::psfonts::unpsfont_clear;
 use crate::util::textconvert::{conv_textisutf8, conv_textstring, convertutf8tolatin1};
-use crate::{fprintf, round, Out};
+use crate::{fprintf, round, round_mul, Out};
 
 /// Font sizes above this are used as they are (`MAXFONTSIZE`).
 pub const MAXFONTSIZE: i32 = 42;
@@ -201,8 +201,18 @@ impl TexFonts {
     /// the size itself above. Negative or non-finite sizes give the
     /// default entry (C indexes out of bounds).
     pub fn texfontsize(&self, s: f64) -> f64 {
+        self.texfontsize_by(s, round(s))
+    }
+
+    /// `TEXFONTSIZE(a*b)`: the macro's `round(S)` adds its 0.5 to the
+    /// product, which clang fuses (the comparison uses the rounded product).
+    pub fn texfontsize_prod(&self, a: f64, b: f64) -> f64 {
+        self.texfontsize_by(a * b, round_mul(a, b))
+    }
+
+    fn texfontsize_by(&self, s: f64, rounded: i32) -> f64 {
         if s <= f64::from(MAXFONTSIZE) {
-            let i = usize::try_from(round(s)).unwrap_or(0);
+            let i = usize::try_from(rounded).unwrap_or(0);
             f64::from(self.sizes.get(i).copied().unwrap_or(self.sizes[0]))
         } else if s.is_finite() {
             s
@@ -214,7 +224,7 @@ impl TexFonts {
     /// `TEXFONTMAG(T)`: the TeX size of a text, scaled by `fontmag` unless
     /// the text is rigid.
     pub fn texfontmag(&self, t: &Text, fontmag: f64) -> f64 {
-        self.texfontsize(t.size * if t.rigid_text() { 1.0 } else { fontmag })
+        self.texfontsize_prod(t.size, if t.rigid_text() { 1.0 } else { fontmag })
     }
 
     /// `select_font`: writes the commands that select the text's font size
@@ -233,7 +243,7 @@ impl TexFonts {
         // The TeX drivers by default use the correct font size, a bit
         // different from the size on the screen.
         if select_fontsize {
-            let texsize = round(t.size * if t.rigid_text() { 1.0 } else { ctx.fontmag });
+            let texsize = round_mul(t.size, if t.rigid_text() { 1.0 } else { ctx.fontmag });
             let baselineskip = f64::from(texsize) * 1.2;
             let bprec = if baselineskip == baselineskip.floor() { 0 } else { 1 };
             fprintf!(out, "\\fontsize{{{}}}{{{:.*}}}", texsize, bprec, baselineskip);

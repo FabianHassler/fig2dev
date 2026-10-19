@@ -45,7 +45,7 @@ fn convy(a: f64) -> f64 {
 
 /// `rtop`: rectangular to polar.
 pub(super) fn rtop(x: f64, y: f64) -> (f64, f64) {
-    let r = (x * x + y * y).sqrt();
+    let r = x.mul_add(x, y * y).sqrt();
     let th = (x / r).acos();
     (r, if y < 0.0 { 2.0 * PI - th } else { th })
 }
@@ -292,21 +292,21 @@ impl Pictex {
         if dx == 0.0 && dy == 0.0 {
             return;
         }
-        let l = (dx * dx + dy * dy).sqrt();
+        let l = dx.mul_add(dx, dy * dy).sqrt();
         if l == 0.0 {
             return;
         }
         let sina = dy / l;
         let cosa = dx / l;
-        let xb = x2 * cosa - y2 * sina;
-        let yb = x2 * sina + y2 * cosa;
+        let xb = x2.mul_add(cosa, -(y2 * sina));
+        let yb = x2.mul_add(sina, y2 * cosa);
         let x = xb - arrowht;
         let y = yb - arrowwid / 2.0;
-        let xc = x * cosa + y * sina;
-        let yc = -x * sina + y * cosa;
+        let xc = x.mul_add(cosa, y * sina);
+        let yc = (-x).mul_add(sina, y * cosa);
         let y = yb + arrowwid / 2.0;
-        let xd = x * cosa + y * sina;
-        let yd = -x * sina + y * cosa;
+        let xd = x.mul_add(cosa, y * sina);
+        let yd = (-x).mul_add(sina, y * cosa);
 
         // Draw it solid, then restore the line style.
         let (style, dash) = (self.line_style, self.dash_length);
@@ -339,8 +339,8 @@ impl Pictex {
         };
         let mut cx1 = (x1 + x2) / 2.0;
         let mut cy1 = (y1 + y2) / 2.0;
-        let mut cx2 = (x1 + 3.0 * x2) / 4.0;
-        let mut cy2 = (y1 + 3.0 * y2) / 4.0;
+        let mut cx2 = 3.0_f64.mul_add(x2, x1) / 4.0;
+        let mut cy2 = 3.0_f64.mul_add(y2, y1) / 4.0;
 
         if s.closed_spline() {
             out.puts("% closed spline\n%\n");
@@ -366,21 +366,21 @@ impl Pictex {
             y1 = y2;
             x2 = nx;
             y2 = ny;
-            let cx3 = (3.0 * x1 + x2) / 4.0;
-            let cy3 = (3.0 * y1 + y2) / 4.0;
+            let cx3 = 3.0_f64.mul_add(x1, x2) / 4.0;
+            let cy3 = 3.0_f64.mul_add(y1, y2) / 4.0;
             let cx4 = (x1 + x2) / 2.0;
             let cy4 = (y1 + y2) / 2.0;
             quadratic_spline(out, [cx1, cy1, cx2, cy2, cx3, cy3, cx4, cy4], 0);
             cx1 = cx4;
             cy1 = cy4;
-            cx2 = (x1 + 3.0 * x2) / 4.0;
-            cy2 = (y1 + 3.0 * y2) / 4.0;
+            cx2 = 3.0_f64.mul_add(x2, x1) / 4.0;
+            cy2 = 3.0_f64.mul_add(y2, y1) / 4.0;
         }
         x1 = x2;
         y1 = y2;
         let Some((x2, y2)) = pt(1) else { return };
-        let cx3 = (3.0 * x1 + x2) / 4.0;
-        let cy3 = (3.0 * y1 + y2) / 4.0;
+        let cx3 = 3.0_f64.mul_add(x1, x2) / 4.0;
+        let cy3 = 3.0_f64.mul_add(y1, y2) / 4.0;
         let cx4 = (x1 + x2) / 2.0;
         let cy4 = (y1 + y2) / 2.0;
         if s.closed_spline() {
@@ -460,8 +460,8 @@ fn quadratic_spline(out: &mut Out, v: [f64; 8], depth: u32) {
                 y1,
                 (x1 + a2) / 2.0,
                 (y1 + b2) / 2.0,
-                (3.0 * a2 + a3) / 4.0,
-                (3.0 * b2 + b3) / 4.0,
+                3.0_f64.mul_add(a2, a3) / 4.0,
+                3.0_f64.mul_add(b2, b3) / 4.0,
                 xmid,
                 ymid,
             ],
@@ -476,8 +476,8 @@ fn quadratic_spline(out: &mut Out, v: [f64; 8], depth: u32) {
             [
                 xmid,
                 ymid,
-                (a2 + 3.0 * a3) / 4.0,
-                (b2 + 3.0 * b3) / 4.0,
+                3.0_f64.mul_add(a3, a2) / 4.0,
+                3.0_f64.mul_add(b3, b2) / 4.0,
                 (a3 + x4) / 2.0,
                 (b3 + y4) / 2.0,
                 x4,
@@ -588,7 +588,7 @@ impl Driver for Pictex {
             theta -= 2.0 * PI;
         }
         let (deg, x, y) = if a.direction != 0 {
-            (360.0 + (180.0 / PI * theta), sx, sy)
+            ((180.0 / PI).mul_add(theta, 360.0), sx, sy)
         } else {
             (-180.0 / PI * theta, ex, ey)
         };

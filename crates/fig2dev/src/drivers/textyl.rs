@@ -127,21 +127,21 @@ impl Textyl {
     fn draw_arrow_head(&self, out: &mut Out, x1: f64, y1: f64, x2: f64, y2: f64, arrowht: f64, arrowwid: f64) {
         let dx = x2 - x1;
         let dy = y1 - y2;
-        let l = (dx * dx + dy * dy).sqrt();
+        let l = dx.mul_add(dx, dy * dy).sqrt();
         if l == 0.0 {
             return;
         }
         let sina = dy / l;
         let cosa = dx / l;
-        let xb = x2 * cosa - y2 * sina;
-        let yb = x2 * sina + y2 * cosa;
+        let xb = x2.mul_add(cosa, -(y2 * sina));
+        let yb = x2.mul_add(sina, y2 * cosa);
         let x = xb - arrowht;
         let y = yb - arrowwid / 2.0;
-        let xc = x * cosa + y * sina;
-        let yc = -x * sina + y * cosa;
+        let xc = x.mul_add(cosa, y * sina);
+        let yc = (-x).mul_add(sina, y * cosa);
         let y = yb + arrowwid / 2.0;
-        let xd = x * cosa + y * sina;
-        let yd = -x * sina + y * cosa;
+        let xd = x.mul_add(cosa, y * sina);
+        let yd = (-x).mul_add(sina, y * cosa);
         out.puts("%\n% arrow head\n%\n");
         for (a, b, c, d) in [(xc, yc, x2, y2), (x2, y2, xd, yd)] {
             fprintf!(
@@ -173,8 +173,8 @@ impl Textyl {
                     y1,
                     (x1 + a2) / 2.0,
                     (y1 + b2) / 2.0,
-                    (3.0 * a2 + a3) / 4.0,
-                    (3.0 * b2 + b3) / 4.0,
+                    3.0_f64.mul_add(a2, a3) / 4.0,
+                    3.0_f64.mul_add(b2, b3) / 4.0,
                     xmid,
                     ymid,
                 ],
@@ -189,8 +189,8 @@ impl Textyl {
                 [
                     xmid,
                     ymid,
-                    (a2 + 3.0 * a3) / 4.0,
-                    (b2 + 3.0 * b3) / 4.0,
+                    3.0_f64.mul_add(a3, a2) / 4.0,
+                    3.0_f64.mul_add(b3, b2) / 4.0,
                     (a3 + x4) / 2.0,
                     (b3 + y4) / 2.0,
                     x4,
@@ -233,8 +233,8 @@ impl Textyl {
         };
         let mut cx1 = (x1 + x2) / 2.0;
         let mut cy1 = (y1 + y2) / 2.0;
-        let mut cx2 = (x1 + 3.0 * x2) / 4.0;
-        let mut cy2 = (y1 + 3.0 * y2) / 4.0;
+        let mut cx2 = 3.0_f64.mul_add(x2, x1) / 4.0;
+        let mut cy2 = 3.0_f64.mul_add(y2, y1) / 4.0;
         if s.closed_spline() {
             out.puts("% closed spline\n%\n");
         } else {
@@ -262,21 +262,21 @@ impl Textyl {
             y1 = y2;
             x2 = nx;
             y2 = ny;
-            let cx3 = (3.0 * x1 + x2) / 4.0;
-            let cy3 = (3.0 * y1 + y2) / 4.0;
+            let cx3 = 3.0_f64.mul_add(x1, x2) / 4.0;
+            let cy3 = 3.0_f64.mul_add(y1, y2) / 4.0;
             let cx4 = (x1 + x2) / 2.0;
             let cy4 = (y1 + y2) / 2.0;
             self.quadratic_spline(out, [cx1, cy1, cx2, cy2, cx3, cy3, cx4, cy4], 0);
             cx1 = cx4;
             cy1 = cy4;
-            cx2 = (x1 + 3.0 * x2) / 4.0;
-            cy2 = (y1 + 3.0 * y2) / 4.0;
+            cx2 = 3.0_f64.mul_add(x2, x1) / 4.0;
+            cy2 = 3.0_f64.mul_add(y2, y1) / 4.0;
         }
         x1 = x2;
         y1 = y2;
         let Some((x2, y2)) = pt(1) else { return };
-        let cx3 = (3.0 * x1 + x2) / 4.0;
-        let cy3 = (3.0 * y1 + y2) / 4.0;
+        let cx3 = 3.0_f64.mul_add(x1, x2) / 4.0;
+        let cy3 = 3.0_f64.mul_add(y1, y2) / 4.0;
         let cx4 = (x1 + x2) / 2.0;
         let cy4 = (y1 + y2) / 2.0;
         if s.closed_spline() {
