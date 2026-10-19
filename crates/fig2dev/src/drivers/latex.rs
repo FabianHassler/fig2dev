@@ -567,7 +567,8 @@ impl Driver for Latex {
     fn option(&mut self, ctx: &mut Ctx, opt: char, arg: Option<&str>) -> Result<(), String> {
         let a = arg.unwrap_or("");
         match opt {
-            'a' => ctx.warn("warning: latex option -a obsolete"),
+            // C writes no newline: the next message continues the line.
+            'a' => ctx.warn_partial("warning: latex option -a obsolete"),
             'b' => {
                 // sscanf("%d"): unchanged when there is no number.
                 let (v, n) = strtol(a);

@@ -1389,19 +1389,54 @@ pub fn read_eps(data: &[u8], pic: &mut Pic) -> Result<(i32, i32), String> {
     Ok(ll)
 }
 
-/// `read_pdf`: the first `/MediaBox` of a PDF. C asks ghostscript when
-/// none is found; RustFig runs no external programs and fails.
+/// readeps.c `scan_mediabox`: `fgets` reads lines of at most 511 bytes
+/// (a longer one comes in pieces, a carriage return is no line end); the
+/// first piece holding `/MediaBox` decides: the four numbers after the
+/// next `[` in that piece, or failure.
+fn scan_mediabox(data: &[u8]) -> Option<[f64; 4]> {
+    const KEY: &[u8] = b"/MediaBox";
+    let mut rest = data;
+    while !rest.is_empty() {
+        let mut n = rest.len().min(511);
+        if let Some(nl) = rest.get(..n).and_then(|c| c.iter().position(|&b| b == b'\n')) {
+            n = nl + 1;
+        }
+        let (line, tail) = rest.split_at(n);
+        rest = tail;
+        // C's strings end at a NUL byte.
+        let line = line.split(|&b| b == 0).next().unwrap_or(line);
+        if let Some(at) = line.windows(KEY.len()).position(|w| w == KEY) {
+            let from = line.get(at..)?;
+            let open = from.iter().position(|&b| b == b'[')?;
+            let s = String::from_utf8_lossy(from.get(open + 1..)?);
+            // `%lf %lf %lf %lf` stops at the ']', as the number would.
+            let v = numbers(s.split(']').next().unwrap_or(""), 4)?;
+            return Some([*v.first()?, *v.get(1)?, *v.get(2)?, *v.get(3)?]);
+        }
+    }
+    None
+}
+
+/// `read_pdf`: the first `/MediaBox` of a PDF, found as `scan_mediabox`
+/// does. When that fails, C runs ghostscript to ask for the page's box;
+/// RustFig runs no external programs and looks further instead: a `[`
+/// on a later line is accepted, as gs would find it. Otherwise it fails.
 pub fn read_pdf(data: &[u8], pic: &mut Pic) -> Result<(i32, i32), String> {
     const KEY: &[u8] = b"/MediaBox";
     pic.subtype = P_EPS;
     let fail = || "no /MediaBox found in the PDF".to_string();
-    let at = data.windows(KEY.len()).position(|w| w == KEY).ok_or_else(fail)?;
-    let rest = data.get(at + KEY.len()..).ok_or_else(fail)?;
-    let rest = rest.get(..rest.len().min(512)).unwrap_or(rest);
-    let s = String::from_utf8_lossy(rest);
-    let s = s.trim_start().strip_prefix('[').ok_or_else(fail)?;
-    let inner = s.split(']').next().unwrap_or("");
-    let v = numbers(inner, 4).ok_or_else(fail)?;
+    let v = match scan_mediabox(data) {
+        Some(v) => v,
+        None => {
+            let at = data.windows(KEY.len()).position(|w| w == KEY).ok_or_else(fail)?;
+            let rest = data.get(at + KEY.len()..).ok_or_else(fail)?;
+            let rest = rest.get(..rest.len().min(512)).unwrap_or(rest);
+            let s = String::from_utf8_lossy(rest);
+            let s = s.trim_start().strip_prefix('[').ok_or_else(fail)?;
+            let v = numbers(s.split(']').next().unwrap_or(""), 4).ok_or_else(fail)?;
+            [v[0], v[1], v[2], v[3]]
+        }
+    };
     let (llx, lly) = (v[0].floor() as i32, v[1].floor() as i32);
     pic.bit_size = Point::new(
         (v[2].ceil() as i32).saturating_sub(llx),
@@ -2036,6 +2071,27 @@ mod tests {
         assert_eq!(pic.bit_size, Point::new(596, 842));
         assert!(read_pdf(b"%PDF-1.4\n", &mut pic).is_err());
         assert!(read_pdf(b"%PDF /MediaBox [1 2", &mut pic).is_err());
+        // C: the first piece with /MediaBox, a '[' later on its line.
+        assert_eq!(
+            read_pdf(
+                b"%PDF-1.4\r1 0 obj << /Type /Page /MediaBox 7 [ -1.5 -2.5 10 20.2 ]>>\n",
+                &mut pic
+            ),
+            Ok((-2, -3))
+        );
+        assert_eq!(pic.bit_size, Point::new(12, 24));
+        assert_eq!(scan_mediabox(b"%PDF\n/MediaBox\n[0 0 1 1]\n"), None, "C asks gs here");
+        assert_eq!(
+            read_pdf(b"%PDF\n/MediaBox\n[0 0 3 4]\n", &mut pic),
+            Ok((0, 0)),
+            "RustFig has no gs and reads on"
+        );
+        // A second /MediaBox is not looked for after a failed first.
+        assert_eq!(scan_mediabox(b"/MediaBox [1 2\n/MediaBox [0 0 5 5]\n"), None);
+        // Lines are cut at 511 bytes.
+        let mut long = vec![b' '; 520];
+        long.splice(505..505, b"/MediaBox [0 0 5 5]".iter().copied());
+        assert_eq!(scan_mediabox(&long), None);
     }
 
     #[test]
