@@ -552,12 +552,12 @@ fn run(args: Vec<String>) -> Result<u8, Exit> {
         return Ok(1);
     };
     let output = open_output(to)?;
-    let status = fig2dev::convert(&mut ctx, dev.as_mut(), &objects);
+    let (bytes, status) = fig2dev::convert_partial(&mut ctx, dev.as_mut(), &objects);
     flush_messages(&mut ctx);
-    let status = status.map_err(Exit)?;
-    write_output(output, &status.output)?;
+    // A driver's exit(1) keeps what it wrote so far (stdio is flushed).
+    write_output(output, &bytes)?;
     // exit(status): the low byte, as the shell sees it.
-    Ok(status.exit as u8)
+    status.map(|exit| exit as u8).map_err(Exit)
 }
 
 fn main() -> ExitCode {

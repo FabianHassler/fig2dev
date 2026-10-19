@@ -18,6 +18,7 @@
 
 use std::f64::consts::PI;
 
+use crate::drivers::pict2e::round_mul;
 use crate::fprintf;
 use crate::object::{
     Arc, Compound, Ellipse, Line, Spline, Text, T_ARC_BOX, T_BOX, T_PIC_BOX, T_PIE_WEDGE_ARC, T_POLYGON, T_POLYLINE,
@@ -199,7 +200,8 @@ fn between_exclude(b1: f32, b2: f32, test: f32) -> bool {
 /// C's `%g`.
 fn fmt_g(x: f64) -> String {
     if x.is_nan() {
-        return if x.is_sign_negative() { "-nan" } else { "nan" }.into();
+        // macOS prints no sign for NaN.
+        return "nan".into();
     }
     if x.is_infinite() {
         return if x < 0.0 { "-inf" } else { "inf" }.into();
@@ -1042,10 +1044,11 @@ impl Driver for Shape {
         let (cxf, cyf) = (f64::from(cx), f64::from(cy));
         let mut alpha = sa;
         while alpha < ea - ARC_STEP / 4.0 {
-            self.line_to(round(cxf + r * alpha.cos()), round(cyf + r * alpha.sin()));
+            // clang fuses `cx + r * cos(alpha)`.
+            self.line_to(round(r.mul_add(alpha.cos(), cxf)), round(r.mul_add(alpha.sin(), cyf)));
             alpha += ARC_STEP;
         }
-        self.line_to(round(cxf + r * ea.cos()), round(cyf + r * ea.sin()));
+        self.line_to(round(r.mul_add(ea.cos(), cxf)), round(r.mul_add(ea.sin(), cyf)));
         self.finish_line();
         Ok(())
     }
@@ -1063,10 +1066,13 @@ impl Driver for Shape {
         self.start_line(&comm, e.depth)?;
         let mut theta = ARC_STEP / 2.0;
         while theta < 2.0 * PI + ARC_STEP / 2.0 {
-            self.line_to(
-                round(x0 + angle.cos() * rx * theta.cos() - angle.sin() * ry * theta.sin()),
-                round(y0 + angle.sin() * rx * theta.cos() + angle.cos() * ry * theta.sin()),
-            );
+            // clang fuses each product with the sum or difference it is an
+            // operand of: `(x0 + a*b*c) - d*e*f` is two fused steps.
+            let (ct, st) = (theta.cos(), theta.sin());
+            let (ca, sa) = (angle.cos(), angle.sin());
+            let x = (-(sa * ry)).mul_add(st, (ca * rx).mul_add(ct, x0));
+            let y = (ca * ry).mul_add(st, (sa * rx).mul_add(ct, y0));
+            self.line_to(round(x), round(y));
             theta += ARC_STEP;
         }
         self.finish_line();
@@ -1129,7 +1135,7 @@ impl Driver for Shape {
                     ymax = ymax.max(p.y);
                 }
                 // ZZOOM: the radius is divided as an integer first.
-                let mut r = round(ctx.mag * f64::from(l.radius / FSCALE as i32));
+                let mut r = round_mul(ctx.mag, f64::from(l.radius / FSCALE as i32));
                 let xmin = Self::xzoom(ctx, xmin.into());
                 let xmax = Self::xzoom(ctx, xmax.into());
                 let ymin = Self::yzoom(ctx, ymin.into());
@@ -1142,8 +1148,8 @@ impl Driver for Shape {
                 let mut corner = |s: &mut Shape, x: i32, y: i32, fin: f64| {
                     while theta < fin {
                         s.line_to(
-                            round(f64::from(x) + rf * theta.cos()),
-                            round(f64::from(y) + rf * theta.sin()),
+                            round(rf.mul_add(theta.cos(), f64::from(x))),
+                            round(rf.mul_add(theta.sin(), f64::from(y))),
                         );
                         theta += ARC_STEP;
                     }
@@ -1345,6 +1351,7 @@ mod tests {
         assert_eq!(fmt_g(0.416_666_7), "0.416667");
         assert_eq!(fmt_g(50.0), "50");
         assert_eq!(fmt_g(f64::NAN), "nan");
+        assert_eq!(fmt_g(-f64::NAN), "nan");
         assert_eq!(fmt_g(1.5e-5), "1.5e-05");
     }
 }

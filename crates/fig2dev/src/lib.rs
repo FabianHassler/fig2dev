@@ -25,7 +25,7 @@ pub mod scene;
 pub mod trans_spline;
 pub mod util;
 
-pub use gendev::{convert, Ctx, Driver, Status};
+pub use gendev::{convert, convert_partial, Ctx, Driver, Status};
 
 /// The output file (`tfp`): bytes, since some languages are binary or use
 /// an 8-bit encoding.

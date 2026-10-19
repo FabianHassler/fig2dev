@@ -134,9 +134,12 @@ fn length(x1: i64, y1: i64, x2: i64, y2: i64) -> f64 {
     let dx = x2.wrapping_sub(x1) as f64;
     let dy = y2.wrapping_sub(y1) as f64;
     if dx.abs() > dy.abs() {
-        dx.abs() * (1.0 + (dy / dx) * (dy / dx)).sqrt()
+        // clang fuses `1.0 + q * q`.
+        let q = dy / dx;
+        dx.abs() * q.mul_add(q, 1.0).sqrt()
     } else {
-        dy.abs() * (1.0 + (dx / dy) * (dx / dy)).sqrt()
+        let q = dx / dy;
+        dy.abs() * q.mul_add(q, 1.0).sqrt()
     }
 }
 

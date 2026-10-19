@@ -1024,3 +1024,40 @@ fn sources_dir() -> std::path::PathBuf {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../old"))
 }
+
+/// fig2dev's `exit(1)` in the driver flushes stdio: the output file keeps
+/// what was written before the error (here a thousand line widths, one
+/// aperture each, run out of apertures).
+#[test]
+fn too_many_apertures_keeps_partial_output() {
+    let mut body = String::from("1200 2\n");
+    for i in 1..=1100 {
+        body += &format!(
+            "2 1 0 {} 0 7 50 -1 -1 0.000 0 0 -1 0 0 2\n\t 1200 {} 4000 {}\n",
+            i + 1,
+            i * 10,
+            i * 10 + 7
+        );
+    }
+    let mut ctx = Ctx {
+        lang: "gbx".into(),
+        ..Ctx::default()
+    };
+    let mut dev = drivers::driver("gbx").unwrap();
+    let objects = readfp_fig(&mut ctx, format!("{HDR}{body}").as_bytes()).unwrap();
+    let (out, status) = fig2dev::convert_partial(&mut ctx, dev.as_mut(), &objects);
+    assert_eq!(
+        status.unwrap_err(),
+        "Error: Maximum number of possible apertures (989) exceeded."
+    );
+    let out = String::from_utf8(out).unwrap();
+    assert!(out.starts_with("G04 Gerber RS-274x file*\n"));
+    assert!(out.contains("%ADD998R,"), "apertures up to the limit are defined");
+    assert!(
+        out.ends_with("D01*\n") || out.ends_with("D02*\n"),
+        "cut mid-drawing, no M02"
+    );
+    assert!(!out.contains("M02*"));
+    // `convert` keeps its old shape.
+    assert!(convert(&mut ctx, dev.as_mut(), &objects).is_err());
+}

@@ -418,11 +418,8 @@ fn latin2(b: u8) -> char {
 /// C's `%g` (six significant digits).
 pub(crate) fn fmt_g(x: f64) -> String {
     if x.is_nan() {
-        return if x.is_sign_negative() {
-            "-nan".into()
-        } else {
-            "nan".into()
-        };
+        // macOS prints no sign for NaN.
+        return "nan".into();
     }
     if x.is_infinite() {
         return if x < 0.0 { "-inf".into() } else { "inf".into() };
@@ -502,6 +499,7 @@ mod tests {
         assert_eq!(fmt_g(0.0001), "0.0001");
         assert_eq!(fmt_g(0.00001), "1e-05");
         assert_eq!(fmt_g(f64::NAN), "nan");
+        assert_eq!(fmt_g(-f64::NAN), "nan", "no sign, as macOS prints it");
     }
 
     #[test]
