@@ -34,6 +34,22 @@ party to do so, with the only requirement being that the above copyright
 and this permission notice remain intact.
 
 
+The X bitmap reader (fig2dev/dev/readxbm.c, ported in
+crates/fig2dev/src/util/readpics.rs) is derived from X11's XRdBitF.c and
+also carries this notice:
+
+Copyright, 1987, Massachusetts Institute of Technology
+
+Permission to use, copy, modify, distribute, and sell this software and its
+documentation for any purpose is hereby granted without fee, provided that
+the above copyright notice appear in all copies and that both that
+copyright notice and this permission notice appear in supporting
+documentation, and that the name of M.I.T. not be used in advertising or
+publicity pertaining to distribution of the software without specific,
+written prior permission.  M.I.T. makes no representations about the
+suitability of this software for any purpose.  It is provided "as is"
+without express or implied warranty.
+
 Files derived from xfig and fig2dev
 -----------------------------------
 Each file below carries a comment naming its sources and pointing to this
@@ -89,7 +105,7 @@ drivers as fig2dev/dev/...); app-defaults/Fig is xfig's resource file.
 - crates/fig2dev/src/util/iso2tex.rs: fig2dev/iso2tex.c
 - crates/fig2dev/src/util/latex.rs: fig2dev/dev/genlatex.h, fig2dev/dev/genlatex.c
 - crates/fig2dev/src/util/psfonts.rs: fig2dev/dev/psfonts.c
-- crates/fig2dev/src/util/readpics.rs: fig2dev/dev/readpics.c, fig2dev/dev/readeps.c, fig2dev/dev/readpcx.c, fig2dev/dev/readpng.c, fig2dev/dev/genps.c
+- crates/fig2dev/src/util/readpics.rs: fig2dev/dev/readpics.c, fig2dev/dev/readeps.c, fig2dev/dev/readgif.c, fig2dev/dev/readpcx.c, fig2dev/dev/readpng.c, fig2dev/dev/readppm.c, fig2dev/dev/readxbm.c, fig2dev/dev/genps.c
 - crates/fig2dev/src/util/setfigfont.rs: fig2dev/dev/setfigfont.c
 - crates/fig2dev/src/util/texfonts.rs: fig2dev/dev/texfonts.c, fig2dev/dev/textconvert.c
 - crates/fig2dev/src/util/textconvert.rs: fig2dev/dev/textconvert.c

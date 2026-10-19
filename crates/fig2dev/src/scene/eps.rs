@@ -303,15 +303,21 @@ fn text(c: &mut Ctx, t: &TextPrim) {
     c.out.push_str("grestore\n");
 }
 
-/// The pixels as hex RGB lines, alpha composited against white.
-fn push_hex_pixels(out: &mut String, img: &figbase::image::RasterImage) {
+/// The pixels as hex RGB, composited over white; with a colour key, the
+/// transparent pixels (alpha 0) are written as the key, which the image
+/// operator leaves out.
+fn push_hex_pixels(out: &mut String, img: &figbase::image::RasterImage, key: Option<[u8; 3]>) {
     let mut col = 0;
     for &[r, g, b, a] in img.rgba.as_chunks::<4>().0 {
         let blend = |v: u8| -> u8 {
             let a = u16::from(a);
             ((u16::from(v) * a + 255 * (255 - a) + 127) / 255) as u8
         };
-        let _ = write!(out, "{:02x}{:02x}{:02x}", blend(r), blend(g), blend(b));
+        let [r, g, b] = match key {
+            Some(k) if a == 0 => k,
+            _ => [blend(r), blend(g), blend(b)],
+        };
+        let _ = write!(out, "{r:02x}{g:02x}{b:02x}");
         col += 6;
         if col >= 72 {
             out.push('\n');
@@ -343,7 +349,7 @@ pub fn raster_eps(img: &figbase::image::RasterImage) -> Option<String> {
         out,
         "{w} {h} 8 [{w} 0 0 -{h} 0 {h}] {{currentfile picstr readhexstring pop}} false 3 colorimage"
     );
-    push_hex_pixels(&mut out, img);
+    push_hex_pixels(&mut out, img, None);
     out.push_str("\ngrestore\nshowpage\n%%EOF\n");
     Some(out)
 }
@@ -390,7 +396,8 @@ fn image(c: &mut Ctx, corners: &[Point; 4], img: &figbase::image::RasterImage, f
         n(tl.y)
     );
     let _ = writeln!(c.out, "/picstr {} string def", u64::from(w) * 3);
-    if let Some([r, g, b]) = color_key(img) {
+    let key = color_key(img);
+    if let Some([r, g, b]) = key {
         // Transparent pixels (a colour key, as genps's `/ImageType 4
         // /MaskColor`) leave what lies below.
         let _ = writeln!(
@@ -405,7 +412,7 @@ fn image(c: &mut Ctx, corners: &[Point; 4], img: &figbase::image::RasterImage, f
             "{w} {h} 8 [{w} 0 0 {h} 0 0] {{currentfile picstr readhexstring pop}} false 3 colorimage"
         );
     }
-    push_hex_pixels(&mut c.out, img);
+    push_hex_pixels(&mut c.out, img, key);
     c.out.push_str("\ngrestore\n");
 }
 
