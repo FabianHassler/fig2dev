@@ -332,6 +332,7 @@ pub fn rasterize_aa(scene: &Scene, pm: &mut Pixmap, opts: &RasterOptions, aa: bo
                 corners,
                 image,
                 flipped,
+                ..
             } => draw_image(pm, corners, image, *flipped, opts),
         }
     }

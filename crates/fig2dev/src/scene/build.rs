@@ -13,7 +13,9 @@
 // `PSFONTMAG` text sizes, `-f`) and read.c (closed polylines, old splines)
 // (xfig licence, see LICENSE-xfig).
 
-use super::{fill, picture_prims, shape_prims, stroke, EmbeddedEps, Fill, Prim, Rgba, Scene, Shape, TextPrim};
+use super::{
+    fill, picture_prims_dct, shape_prims, stroke, EmbeddedEps, EmbeddedJpeg, Fill, Prim, Rgba, Scene, Shape, TextPrim,
+};
 use crate::gendev::{drawing_order, Obj, FIG_COLOR_NAMES, NUM_STD_COLS};
 use crate::object::{self as f, Compound};
 use crate::util::readpics::{load_picture, LoadedPicture};
@@ -395,6 +397,7 @@ impl Builder {
         let pic = l.pic.as_deref();
         let file = pic.map(|p| p.file.as_str()).unwrap_or_default();
         let mut image = None;
+        let mut dct = false;
         if !file.is_empty() {
             match load_picture(ctx, file) {
                 Ok(LoadedPicture::Raster(img)) => image = Some(Shared::new(img)),
@@ -420,8 +423,29 @@ impl Builder {
                             urx,
                             ury,
                             ps,
+                            jpeg: None,
                         },
                     );
+                }
+                // genps passes the compressed data of a JPEG on; the other
+                // outputs get the pixels (none when they can't be decoded)
+                Ok(LoadedPicture::Jpeg { raster, info, data }) => {
+                    image = raster.map(Shared::new);
+                    if self.text.genps && !self.text.eps_preview {
+                        dct = true;
+                        self.embedded_eps.insert(
+                            file.to_string(),
+                            EmbeddedEps {
+                                title: file.to_string(),
+                                llx: 0,
+                                lly: 0,
+                                urx: info.width,
+                                ury: info.height,
+                                ps: Vec::new(),
+                                jpeg: Some(EmbeddedJpeg { info, data }),
+                            },
+                        );
+                    }
                 }
                 Ok(LoadedPicture::Pdf) => {}
                 // fig2dev's message; the picture becomes a placeholder.
@@ -434,10 +458,11 @@ impl Builder {
         } else {
             None
         };
-        picture_prims(
+        picture_prims_dct(
             r.corners(),
             image,
             pic.is_some_and(|p| p.flipped != 0),
+            dct,
             file,
             frame,
             &mut self.prims,

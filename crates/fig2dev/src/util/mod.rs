@@ -10,12 +10,14 @@
 //! - [`setfigfont`]: `dev/setfigfont.c` (the `\SetFigFont` macro).
 //! - [`latex`]: `dev/genlatex.h` (`set_color`, `reset_color`).
 //! - [`creationdate`]: `creationdate.c` (honours `SOURCE_DATE_EPOCH`).
+//! - [`readjpg`]: `dev/readjpg.c`, `encode.c` (JPEG header, ASCII85, the DCT passthrough).
 //! - [`readpics`]: `dev/readpics.c` and the `dev/read*.c` picture readers.
 
 pub mod creationdate;
 pub mod iso2tex;
 pub mod latex;
 pub mod psfonts;
+pub mod readjpg;
 pub mod readpics;
 pub mod setfigfont;
 pub mod texfonts;

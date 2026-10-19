@@ -443,6 +443,7 @@ pub fn to_svg_page(
                 corners,
                 image,
                 flipped,
+                ..
             } => {
                 let Some(png) = image_png(image) else {
                     continue;

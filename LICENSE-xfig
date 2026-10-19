@@ -21,6 +21,7 @@ Parts Copyright (c) 2002 by Anthony Starks
 Copyright (c) 2002 by Christian Gollwitzer
 Parts Copyright (c) 2002-2006 by Martin Kroeker
 Parts Copyright (c) 2004 by Chris Moller
+Parts Copyright (c) 1994-2002 by Thomas Merz (jpeg2ps, used with permission)
 Parts Copyright (c) 2015-2024 by Thomas Loimer
 and the other contributors named in the xfig and fig2dev sources.
 
@@ -105,6 +106,7 @@ drivers as fig2dev/dev/...); app-defaults/Fig is xfig's resource file.
 - crates/fig2dev/src/util/iso2tex.rs: fig2dev/iso2tex.c
 - crates/fig2dev/src/util/latex.rs: fig2dev/dev/genlatex.h, fig2dev/dev/genlatex.c
 - crates/fig2dev/src/util/psfonts.rs: fig2dev/dev/psfonts.c
+- crates/fig2dev/src/util/readjpg.rs: fig2dev/dev/readjpg.c, fig2dev/dev/encode.c
 - crates/fig2dev/src/util/readpics.rs: fig2dev/dev/readpics.c, fig2dev/dev/readeps.c, fig2dev/dev/readgif.c, fig2dev/dev/readpcx.c, fig2dev/dev/readpng.c, fig2dev/dev/readppm.c, fig2dev/dev/readxbm.c, fig2dev/dev/genps.c
 - crates/fig2dev/src/util/setfigfont.rs: fig2dev/dev/setfigfont.c
 - crates/fig2dev/src/util/texfonts.rs: fig2dev/dev/texfonts.c, fig2dev/dev/textconvert.c

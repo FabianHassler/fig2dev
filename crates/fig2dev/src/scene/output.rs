@@ -99,6 +99,17 @@ pub struct EmbeddedEps {
     pub ury: i32,
     /// The PostScript (without a DOS EPS header).
     pub ps: Vec<u8>,
+    /// A JPEG file: `ps` is empty, the EPS writer passes the compressed
+    /// data on as genps does (`JPEGtoPS`).
+    pub jpeg: Option<EmbeddedJpeg>,
+}
+
+/// A JPEG picture for the PostScript writers to pass through.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddedJpeg {
+    pub info: crate::util::readjpg::JpegInfo,
+    /// The file's bytes.
+    pub data: Vec<u8>,
 }
 
 /// The program name and version fig2dev writes into its headers
