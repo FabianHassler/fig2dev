@@ -15,6 +15,7 @@ use super::pattern::{coverage, PatternFrame};
 use super::ps_cmap::{XFIG_CMAP1, XFIG_CMAP2, XFIG_CMAP3};
 use super::{EmbeddedEps, PageLayout};
 use super::{Fill, Prim, Rgba, Scene, Stroke, SubPath, TextPrim};
+use crate::util::readjpg;
 use figbase::geom::{Point, Rect, Seg};
 use figbase::style::{CapStyle, JoinStyle, Justify};
 use std::fmt::Write as _;
@@ -25,6 +26,8 @@ struct Ctx {
     k: f64,
     min_x: f64,
     max_y: f64,
+    /// The creation date, for the DSC header of an embedded JPEG.
+    date: Option<String>,
 }
 
 fn n(v: f64) -> String {
@@ -539,7 +542,11 @@ fn draw_prims(c: &mut Ctx, scene: &Scene, embeds: &std::collections::BTreeMap<St
                 corners,
                 image: img,
                 flipped,
-            } => image(c, corners, img, *flipped),
+                dct,
+            } => match dct.as_ref().and_then(|f| embeds.get(f)) {
+                Some(e) => embed(c, corners, *flipped, e),
+                None => image(c, corners, img, *flipped),
+            },
         }
     }
 }
@@ -567,6 +574,7 @@ pub fn to_eps(
         k,
         min_x: b.min.x,
         max_y: b.max.y,
+        date: meta.date.as_ref().map(|d| d.iso()),
     };
     let (w, h) = (b.width() * k, b.height() * k);
     c.out.push_str("%!PS-Adobe-3.0 EPSF-3.0\n");
@@ -616,6 +624,7 @@ pub fn to_ps(
         k,
         min_x: b.min.x,
         max_y: b.max.y,
+        date: meta.date.as_ref().map(|d| d.iso()),
     };
     draw_prims(&mut c, scene, embeds);
     let body = std::mem::take(&mut c.out);
@@ -672,11 +681,19 @@ fn embed(c: &mut Ctx, corners: &[Point; 4], flipped: bool, e: &EmbeddedEps) {
         return;
     }
     let [tl, _, br, _] = *corners;
+    let jpeg = e.jpeg.as_ref();
+    let date = c.date.clone();
     let o = &mut c.out;
     o.push_str("%\n% pen to black in case this eps object doesn't set color first\n0 0 0 setrgbcolor\n");
-    let _ = writeln!(o, "% Begin Imported EPS File: {}", e.title);
-    let _ = writeln!(o, "%%BeginDocument: {}", e.title);
-    o.push_str("%\nnewpath gsave\n");
+    if jpeg.is_some() {
+        // readjpg.c's comment
+        let _ = writeln!(o, "% Begin Imported JPEG File: {}\n", e.title);
+        o.push_str("newpath gsave\n");
+    } else {
+        let _ = writeln!(o, "% Begin Imported EPS File: {}", e.title);
+        let _ = writeln!(o, "%%BeginDocument: {}", e.title);
+        o.push_str("%\nnewpath gsave\n");
+    }
     // Fig coordinates, as genps works in them.
     let _ = writeln!(
         o,
@@ -700,6 +717,16 @@ fn embed(c: &mut Ctx, corners: &[Point; 4], flipped: bool, e: &EmbeddedEps) {
     }
     let _ = writeln!(o, "{} {} translate", -pllx, -plly);
     o.push_str("save\n");
+    if let Some(j) = jpeg {
+        // genps: the picture's size in bits, then JPEGtoPS's EPS
+        o.push_str("% JPEG image follows:\n");
+        let _ = writeln!(o, "{purx} {pury} sc");
+        o.push_str(&readjpg::jpeg_to_ps(&j.info, &e.title, date.as_deref(), &j.data));
+        o.push_str("restore grestore\n%\n");
+        let _ = writeln!(o, "% End Imported PIC File: {}", e.title);
+        o.push_str("%\n");
+        return;
+    }
     let _ = writeln!(
         o,
         "newpath {pllx} {plly} moveto {purx} {plly} lineto {purx} {pury} lineto {pllx} {pury} lineto closepath clip newpath"

@@ -28,7 +28,7 @@ pub mod svg;
 mod textcache;
 
 pub use build::build;
-pub use output::{export_bounds, write, EmbeddedEps, ExportFormat, Page};
+pub use output::{export_bounds, write, EmbeddedEps, EmbeddedJpeg, ExportFormat, Page};
 pub use page::{PageInput, PageLayout};
 
 use figbase::color::{area_fill_color, Rgb};
@@ -111,6 +111,9 @@ pub enum Prim {
         image: Arc<RasterImage>,
         /// Transposed (Fig "flipped" pictures).
         flipped: bool,
+        /// A JPEG file the PostScript writers pass through instead of the
+        /// pixels: its name in the export's embedded pictures.
+        dct: Option<String>,
     },
     /// A picture without pixels (an EPS or PDF file, or one that could
     /// not be read). The placeholder drawn for it follows as the next
@@ -517,11 +520,26 @@ pub fn picture_prims(
     frame: Option<Stroke>,
     out: &mut Vec<Prim>,
 ) {
+    picture_prims_dct(corners, image, flipped, false, file, frame, out);
+}
+
+/// [`picture_prims`] for a picture the PostScript writers may pass through
+/// as it is (`dct`: a JPEG in the export's embedded pictures under `file`).
+pub fn picture_prims_dct(
+    corners: [Point; 4],
+    image: Option<Arc<RasterImage>>,
+    flipped: bool,
+    dct: bool,
+    file: &str,
+    frame: Option<Stroke>,
+    out: &mut Vec<Prim>,
+) {
     match image {
         Some(image) => out.push(Prim::Image {
             corners,
             image,
             flipped,
+            dct: dct.then(|| file.to_string()),
         }),
         None => {
             out.push(Prim::PictureRef {

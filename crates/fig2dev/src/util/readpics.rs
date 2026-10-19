@@ -42,6 +42,7 @@ use std::path::{Path, PathBuf};
 
 use figbase::image::RasterImage;
 
+use super::readjpg;
 use crate::gendev::Ctx;
 use crate::object::{Pic, Point, P_EPS, P_GIF, P_JPEG, P_PCX, P_PNG, P_PPM, P_TIF, P_XBM, P_XPM};
 
@@ -433,7 +434,7 @@ pub fn read_pic(ctx: &mut Ctx, stream: &PicStream, pic: &mut Pic) -> Result<(i32
         PicType::Ppm => read_ppm(ctx, &stream.data, pic).map(|()| (0, 0)),
         PicType::Tiff => read_raster(ctx, &stream.data, image::ImageFormat::Tiff, t, pic),
         PicType::Png => read_png(ctx, &stream.data, pic, &mut msgs).map(|()| (0, 0)),
-        PicType::Jpeg => read_raster(ctx, &stream.data, image::ImageFormat::Jpeg, t, pic),
+        PicType::Jpeg => read_jpg(&stream.data, pic, &mut msgs).map(|()| (0, 0)),
     };
     for m in msgs {
         ctx.warn(m);
@@ -714,7 +715,24 @@ fn read_ppm(ctx: &Ctx, data: &[u8], pic: &mut Pic) -> Result<(), String> {
     Ok(())
 }
 
-/// TIFF and JPEG through the `image` crate.
+/// `read_jpg`: genps does not decode a JPEG, it reads the header (size and
+/// colour space) and later passes the data on; `pic` gets the size and no
+/// bitmap. The message of a bad header goes to `msgs`.
+fn read_jpg(data: &[u8], pic: &mut Pic, msgs: &mut Vec<String>) -> Result<(), String> {
+    match readjpg::analyze_jpeg(data) {
+        Ok(info) => {
+            pic.subtype = P_JPEG;
+            set_size(pic, info.width as u32, info.height as u32);
+            Ok(())
+        }
+        Err(m) => {
+            msgs.push(m);
+            Err(String::new())
+        }
+    }
+}
+
+/// TIFF and (for display) JPEG through the `image` crate.
 fn read_raster(
     ctx: &Ctx,
     data: &[u8],
@@ -1852,6 +1870,15 @@ pub enum LoadedPicture {
         /// PostScript.
         preview: Option<RasterImage>,
     },
+    /// A JPEG file: its header as genps reads it and the compressed data,
+    /// which the PostScript output passes on as it is; `raster` is the
+    /// decoded picture for the other outputs (`None` when it can't be
+    /// decoded: genps never decodes it).
+    Jpeg {
+        raster: Option<RasterImage>,
+        info: readjpg::JpegInfo,
+        data: Vec<u8>,
+    },
     /// A PDF file: fig2dev converts it with external programs; RustFig
     /// shows a placeholder.
     Pdf,
@@ -1885,6 +1912,18 @@ pub fn load_picture(ctx: &mut Ctx, name: &str) -> Result<LoadedPicture, String> 
             ps: eps_section(&stream.data).to_vec(),
             preview: eps_preview(&stream.data, pic.bit_size.x, pic.bit_size.y),
         }),
+        PicType::Jpeg => {
+            let info = readjpg::analyze_jpeg(&stream.data)?;
+            let mut decoded = Pic::default();
+            let raster = read_raster(ctx, &stream.data, image::ImageFormat::Jpeg, kind, &mut decoded)
+                .ok()
+                .and_then(|_| pic_to_raster(&decoded).ok());
+            Ok(LoadedPicture::Jpeg {
+                raster,
+                info,
+                data: stream.data,
+            })
+        }
         _ => pic_to_raster(&pic).map(LoadedPicture::Raster),
     }
 }

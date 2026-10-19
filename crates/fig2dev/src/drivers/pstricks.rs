@@ -1498,7 +1498,10 @@ impl Pstricks {
 /// white. `Err` when the picture cannot be read or the file written.
 fn convert_to_eps(ctx: &mut Ctx, src: &str, dest: &str) -> Result<(), String> {
     let eps = match readpics::load_picture(ctx, src)? {
-        readpics::LoadedPicture::Raster(img) => crate::scene::eps::raster_eps(&img).ok_or("empty picture")?,
+        readpics::LoadedPicture::Raster(img) | readpics::LoadedPicture::Jpeg { raster: Some(img), .. } => {
+            crate::scene::eps::raster_eps(&img).ok_or("empty picture")?
+        }
+        readpics::LoadedPicture::Jpeg { raster: None, .. } => return Err(format!("{src}: Bad JPEG format")),
         _ => return Err(format!("{src}: not a bitmap")),
     };
     std::fs::write(dest, eps).map_err(|e| format!("{dest}: {e}"))

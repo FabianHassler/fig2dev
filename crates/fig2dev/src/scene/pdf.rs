@@ -508,6 +508,7 @@ pub fn to_pdf_pages(
                 corners,
                 image: img,
                 flipped,
+                ..
             } => image(&mut c, corners, img, *flipped, &mut images),
         }
     }
