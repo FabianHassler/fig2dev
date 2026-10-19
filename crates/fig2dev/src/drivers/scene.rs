@@ -45,6 +45,7 @@ const LANGUAGES: &[(&str, ExportFormat)] = &[
     // PostScript pages (genps with the page layout).
     ("ps", ExportFormat::Eps),
     ("pstex", ExportFormat::Eps),
+    ("sld", ExportFormat::Sld),
     ("svg", ExportFormat::Svg),
     ("tiff", ExportFormat::Tiff),
     ("xbm", ExportFormat::Xbm),

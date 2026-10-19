@@ -121,7 +121,7 @@ const ALL: &[&str] = &[];
 const PS: &[&str] = &["ps", "eps", "pdf", "pspdf"];
 /// Options of genps that also reach the bitmaps (genbitmaps runs genps).
 const PS_AND_BITMAPS: &[&str] = &[
-    "ps", "eps", "pdf", "pspdf", "gif", "jpeg", "pcx", "png", "ppm", "tiff", "xbm", "xpm",
+    "ps", "eps", "pdf", "pspdf", "gif", "jpeg", "pcx", "png", "ppm", "sld", "tiff", "xbm", "xpm",
 ];
 /// Options only for whole pages (PostScript, or PDF in page mode).
 const PAGE: &[&str] = &["ps", "pdf"];
@@ -129,7 +129,7 @@ const PAGE: &[&str] = &["ps", "pdf"];
 const EPS: &[&str] = &["eps", "pdf", "pspdf"];
 /// Previews: PostScript and EPS, not PDF.
 const PREVIEW: &[&str] = &["ps", "eps", "pspdf"];
-const BITMAPS: &[&str] = &["gif", "jpeg", "pcx", "png", "ppm", "tiff", "xbm", "xpm"];
+const BITMAPS: &[&str] = &["gif", "jpeg", "pcx", "png", "ppm", "sld", "tiff", "xbm", "xpm"];
 
 /// fig2dev's options, as its sources accept them (`get_args` in
 /// fig2dev.c, `gen_ps_eps_option` in genps.c, `genpdf_option`,

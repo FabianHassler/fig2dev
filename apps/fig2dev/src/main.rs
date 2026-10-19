@@ -72,7 +72,7 @@ const DRIVERS: &[(&str, Option<&str>, Writer)] = &[
     ("pstricks", None, Writer::Planned("B3")),
     ("ptk", None, Writer::Planned("B9")),
     ("shape", None, Writer::Planned("B9")),
-    ("sld", None, Writer::Planned("B9")),
+    ("sld", None, Writer::Ported),
     ("svg", None, Writer::Ported),
     ("textyl", None, Writer::Planned("B9")),
     ("tiff", Some("tif"), Writer::Ported),

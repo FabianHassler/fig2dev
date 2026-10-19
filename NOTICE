@@ -19,6 +19,13 @@ X-splines are implemented from the published paper: C. Blanc and
 C. Schlick, "X-Splines: A Spline Model Designed for the End User",
 SIGGRAPH '95.
 
+The AutoCAD slide writer (crates/fig2dev/src/scene/sld.rs) is a port of netpbm's
+ppmtoacad (converter/ppm/ppmtoacad.c and autocad.h, including the 256-colour
+table), by John Walker, Autodesk SA, 1991: "Permission to use, copy, modify,
+and distribute this software and its documentation for any purpose and without
+fee is hereby granted, without any conditions or restrictions. This software is
+provided "as is" without express or implied warranty."
+
 Assets
 ------
 This repository contains no image, icon or font files. Fill patterns and

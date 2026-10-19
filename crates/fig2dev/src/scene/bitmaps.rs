@@ -70,6 +70,7 @@ pub fn encode(format: ExportFormat, pm: &Pixmap, enc: &Encoding) -> Result<Vec<u
         }
         ExportFormat::Ppm => Ok(ppm(&rgb, w, h)),
         ExportFormat::Pcx => pcx(&rgb, w, h),
+        ExportFormat::Sld => super::sld::sld(&rgb, w, h),
         ExportFormat::Xbm => Ok(xbm(&rgb, w, h).into_bytes()),
         ExportFormat::Xpm => Ok(xpm(&rgb, w, h).into_bytes()),
         other => Err(format!(
