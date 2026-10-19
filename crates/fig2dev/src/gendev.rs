@@ -169,6 +169,9 @@ pub struct Ctx {
     /// relative names with the directory of `from` (as read.c does), so
     /// leave this `None` when `from` is set.
     pub dir: Option<std::path::PathBuf>,
+    /// creationdate.c's `static struct tm`: the time is read once, and a
+    /// bad `SOURCE_DATE_EPOCH` is reported once, per conversion.
+    pub creation_cache: Option<Option<crate::util::creationdate::DateTime>>,
 }
 
 impl Default for Ctx {
@@ -228,6 +231,7 @@ impl Default for Ctx {
             messages: Vec::new(),
             partial_line: false,
             dir: None,
+            creation_cache: None,
         }
     }
 }

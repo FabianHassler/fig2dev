@@ -416,7 +416,9 @@ impl Driver for SceneDriver {
         let border = if !o.border.is_finite() {
             0.0
         } else if self.format.is_bitmap() {
-            o.border.clamp(0.0, 72_000.0) * 15.0
+            // genbitmaps_start: `n = (int)(border_margin * THICK_SCALE + 0.9)`;
+            // truncation towards zero, so -3 gives -44.
+            o.border.clamp(-72_000.0, 72_000.0).mul_add(15.0, 0.9).trunc()
         } else {
             o.border.clamp(0.0, 72_000.0) * 1200.0 / 72.0 / scale
         };

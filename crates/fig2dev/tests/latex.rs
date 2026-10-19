@@ -65,10 +65,8 @@ fn dashed_box_and_options() {
     let (_, msgs, _) = run("latex", DASHED_BOX, &[('a', None), ('f', Some("zz"))]).unwrap();
     assert_eq!(
         msgs,
-        vec![
-            "warning: latex option -a obsolete",
-            "warning: non-standard font name zz ignored"
-        ]
+        // C's -a message has no newline: the next one continues its line.
+        vec!["warning: latex option -a obsoletewarning: non-standard font name zz ignored"]
     );
     assert_eq!(
         run("latex", DASHED_BOX, &[('x', None)]).unwrap_err(),

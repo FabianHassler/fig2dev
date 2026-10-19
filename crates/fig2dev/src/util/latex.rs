@@ -76,9 +76,14 @@ impl LatexColor {
         if let Some(s) = std {
             fprintf!(out, "\\color[rgb]{{{}}}", s);
         } else {
-            // C indexes user_colors[col - NUM_STD_COLS]; look the colour up by
-            // its number instead (unknown numbers give black).
-            let (r, g, b) = ctx.color_rgb(col).unwrap_or((0, 0, 0));
+            // As C: the reader numbers user colours 32 + index in order of
+            // definition, so `col` indexes `user_colors` (not the number the
+            // file gave the colour). C reads out of bounds for a missing
+            // one; black here.
+            let (r, g, b) = usize::try_from(col - NUM_STD_COLS as i32)
+                .ok()
+                .and_then(|i| ctx.user_colors.get(i))
+                .map_or((0, 0, 0), |u| (u.r, u.g, u.b));
             fprintf!(
                 out,
                 "\\color[rgb]{{{:.3},{:.3},{:.3}}}",
@@ -125,5 +130,26 @@ mod tests {
             "{\\color[rgb]{1,0,0}\\color[rgb]{1.000,0.502,0.000}}%\n"
         );
         assert_eq!(lc.lastcolor, -1);
+    }
+
+    /// User colours are looked up by definition order (32 + index), not by
+    /// the number the file gave them (reference: fig2dev -L latex).
+    #[test]
+    fn user_colors_by_definition_order() {
+        let mut ctx = Ctx::default();
+        for (c, r, g, b) in [(40, 255, 128, 0), (35, 0, 64, 255)] {
+            ctx.user_colors.push(UserColor { c, r, g, b });
+        }
+        let mut out = Out::new();
+        let mut lc = LatexColor::default();
+        lc.set_color(&mut out, &ctx, 33);
+        lc.reset_color(&mut out, 33);
+        lc.set_color(&mut out, &ctx, 32);
+        lc.reset_color(&mut out, 32);
+        lc.set_color(&mut out, &ctx, 99);
+        assert_eq!(
+            String::from_utf8(out.buf).unwrap(),
+            "{\\color[rgb]{0.000,0.251,1.000}}%\n{\\color[rgb]{1.000,0.502,0.000}}%\n{\\color[rgb]{0.000,0.000,0.000}"
+        );
     }
 }

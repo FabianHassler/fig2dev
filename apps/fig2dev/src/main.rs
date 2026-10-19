@@ -177,7 +177,7 @@ const GENERAL_HELP: &[(char, &str)] = &[
     ('s', "  -s size     set default font size in points"),
     (
         'Z',
-        "  -Z maxdim   scale the figure so that the maximum dimension (width or height)\n                is maxdim inches/cm.  This may not be used with the -m option\n  -Z <width>w   append 'w' or a colon (':') to specify the width, append 'h' or\n  -Z <height>h  prepend a colon to specify the height",
+        "  -Z maxdim   scale the figure so that the maximum dimension (width or height)\n                is maxdim inches/cm.  This may not be used with the -m option \n  -Z <width>w   append 'w' or a colon (':') to specify the width, append 'h' or\n  -Z <height>h  prepend a colon to specify the height",
     ),
 ];
 
@@ -245,7 +245,8 @@ fn print_help(lang: Option<&str>) {
     print!("{USAGE}");
     println!("General Options (all drivers):");
     println!("  -L language\tchoose output language (this must be first, if the language");
-    println!("                cannot be inferred from the suffix of the output file)");
+    // "inferrred" and the trailing blank after "-m option" are help_msg's own.
+    println!("                cannot be inferrred from the suffix of the output file)");
     print!("                Available languages are:\n                   ");
     let mut n = 20;
     for (name, _, _) in DRIVERS {
@@ -306,10 +307,17 @@ impl Devices {
     }
 }
 
-/// Write fig2dev's messages gathered in `ctx`, one line each.
+/// Write fig2dev's messages gathered in `ctx`, one line each; a message C
+/// writes without a newline (`warn_partial`) stays unfinished, so the next
+/// one continues its line.
 fn flush_messages(ctx: &mut fig2dev::Ctx) {
-    for m in ctx.messages.drain(..) {
-        eprintln!("{m}");
+    let last = ctx.messages.len().saturating_sub(1);
+    for (i, m) in ctx.messages.drain(..).enumerate() {
+        if i == last && ctx.partial_line {
+            eprint!("{m}");
+        } else {
+            eprintln!("{m}");
+        }
     }
 }
 

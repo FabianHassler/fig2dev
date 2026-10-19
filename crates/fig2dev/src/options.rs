@@ -425,7 +425,17 @@ pub fn parse_options(lang: &Language, items: &[(&str, OptionValue<'_>)]) -> Resu
                     OptionValue::Bool(_) => return Err("option max_size takes a size, like 4, 4w or 4h".into()),
                 })
             }
-            "border" => o.border = number(0.0, MAX_BORDER_PT)?,
+            // The bitmaps' border may be negative (C's `%d`; the figure is cut).
+            "border" => {
+                o.border = number(
+                    if BITMAPS.contains(&lang.id) {
+                        -MAX_BORDER_PT
+                    } else {
+                        0.0
+                    },
+                    MAX_BORDER_PT,
+                )?
+            }
             "background" => {
                 let t = text()?;
                 o.background = Some(x_color(t).ok_or_else(|| format!("can't parse color {t:?}"))?);

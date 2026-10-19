@@ -527,3 +527,57 @@ fn guessed_language_is_passed_to_the_driver() {
     assert_eq!(guessed, out(&explicit));
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Audit pass 23 (with -b and -m together the map adds the border unscaled
+/// and the png scales it, in C too; not tested): the image map's whole-figure area (a figure comment)
+/// lines up with the bitmap for the same options: it starts at the border
+/// and ends at most one pixel inside the png's size (genmap.c rounds,
+/// genbitmaps.c rounds up). Negative borders cut the figure in both.
+#[test]
+fn map_and_png_bounds_agree() {
+    let fig = FIG.replace("1200 2\n", "# HREF=\"u\" ALT=\"a\"\n1200 2\n");
+    for opts in [&[][..], &["-m", "1.5"], &["-b", "10"], &["-b", "-3"], &["-m", "1.3"]] {
+        let mut a = vec!["-L", "map"];
+        a.extend_from_slice(opts);
+        let m = fig2dev(&a, &fig);
+        assert!(m.status.success(), "{}", err(&m));
+        let text = String::from_utf8_lossy(&m.stdout).into_owned();
+        let coords = text
+            .lines()
+            .find_map(|l| l.strip_prefix("<AREA COORDS=\"")?.split('"').next().map(str::to_string))
+            .unwrap();
+        let v: Vec<i32> = coords.split(',').map(|n| n.parse().unwrap()).collect();
+        let mut p = vec!["-L", "png"];
+        p.extend_from_slice(opts);
+        let png = fig2dev(&p, &fig);
+        assert!(png.status.success(), "{}", err(&png));
+        let w = i32::try_from(u32::from_be_bytes(png.stdout[16..20].try_into().unwrap())).unwrap();
+        let h = i32::try_from(u32::from_be_bytes(png.stdout[20..24].try_into().unwrap())).unwrap();
+        let border: i32 = opts
+            .windows(2)
+            .find(|w| w[0] == "-b")
+            .map_or(0, |w| w[1].parse().unwrap());
+        assert_eq!((v[0], v[1]), (border, border), "{opts:?}");
+        assert!(
+            (0..=1).contains(&(w - v[2] - border)),
+            "{opts:?}: map {v:?} png {w}x{h}"
+        );
+        assert!(
+            (0..=1).contains(&(h - v[3] - border)),
+            "{opts:?}: map {v:?} png {w}x{h}"
+        );
+    }
+}
+
+/// Audit pass 26: latex's obsolete `-a` message has no newline in C, the
+/// next message continues its line (checked against fig2dev 3.2.9a).
+#[test]
+fn latex_a_message_has_no_newline() {
+    let o = fig2dev(&["-L", "latex", "-a", "-f", "foo"], FIG);
+    assert_eq!(
+        err(&o),
+        "warning: latex option -a obsoletewarning: non-standard font name foo ignored\n"
+    );
+    let o = fig2dev(&["-L", "latex", "-a"], FIG);
+    assert_eq!(err(&o), "warning: latex option -a obsolete");
+}

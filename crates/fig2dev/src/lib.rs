@@ -72,3 +72,24 @@ macro_rules! fprintf {
 pub fn round(x: f64) -> i32 {
     (if x >= 0.0 { x + 0.5 } else { x - 0.5 }) as i32
 }
+
+#[cfg(test)]
+mod round_tests {
+    use super::round;
+
+    /// fig2dev.h: `(int)((x) + ((x >= 0)? 0.5: -0.5))`, truncating, with
+    /// the double rounding of the sum (0.49999999999999994 gives 1) and
+    /// arm64's saturating, NaN-to-0 conversion.
+    #[test]
+    fn round_is_the_c_macro() {
+        assert_eq!(round(0.5), 1);
+        assert_eq!(round(-0.5), -1);
+        assert_eq!(round(2.4999), 2);
+        assert_eq!(round(-2.5), -3);
+        assert_eq!(round(-0.0), 0);
+        assert_eq!(round(0.499_999_999_999_999_94), 1);
+        assert_eq!(round(1e30), i32::MAX);
+        assert_eq!(round(-1e30), i32::MIN);
+        assert_eq!(round(f64::NAN), 0);
+    }
+}

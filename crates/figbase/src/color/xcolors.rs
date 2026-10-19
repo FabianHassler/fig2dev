@@ -672,7 +672,9 @@ const X_COLORS: &[(&str, u8, u8, u8)] = &[
 /// `#rrggbb`, `#rrrgggbbb`, `#rrrrggggbbbb`, or an X11 name (case and
 /// blanks ignored).
 pub fn x_color(name: &str) -> Option<Rgb> {
-    let name = name.trim();
+    // As lookup_X_color: the name is taken as it is (a hex value with blanks
+    // is no hex value); only a name's blanks and tabs are squeezed out. C
+    // returns 16-bit values; every consumer keeps the top eight bits, as here.
     if let Some(hex) = name.strip_prefix('#') {
         let digits = match hex.len() {
             3 | 6 | 9 | 12 => hex.len() / 3,
@@ -714,6 +716,8 @@ mod tests {
         assert_eq!(x_color("#123456789"), Some(Rgb::new(0x12, 0x45, 0x78)));
         assert_eq!(x_color("#ffff00000000"), Some(Rgb::new(255, 0, 0)));
         assert_eq!(x_color("#12"), None);
+        assert_eq!(x_color(" #fff"), None, "no trimming, as in C");
+        assert_eq!(x_color("#ff ff"), None);
         assert_eq!(x_color("#gggggg"), None);
         assert_eq!(x_color("#ééé"), None);
         assert_eq!(x_color("nosuchcolour"), None);

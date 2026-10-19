@@ -177,7 +177,8 @@ const MF: DriverHelp = d(
         o('x', "xmin", "specifies minimum x coordinate of figure (inches)"),
         o('y', "ymin", "specifies minimum y coordinate of figure (inches)"),
         o('X', "xmax", "specifies maximum x coordinate of figure (inches)"),
-        o('Y', "ymax", "specifies maximum y coordinate of figure (inches)"),
+        // help_msg says "-Y xmax" here (a typo kept).
+        o('Y', "xmax", "specifies maximum y coordinate of figure (inches)"),
     ],
 );
 
@@ -293,7 +294,7 @@ const TIKZ: DriverHelp = DriverHelp {
 // -M, -N and -O are listed by fig2dev's help but the driver rejects them,
 // so they are left out here.
 const PSTRICKS: DriverHelp = d(
-    "PSTRICKS",
+    "PSTricks",
     &[
         o('f', "fontname", "set default font"),
         o('G', "dummyarg", "draw pstricks standard grid (sizes ignored)"),
@@ -308,7 +309,7 @@ const PSTRICKS: DriverHelp = d(
         o(
             'R',
             "0|1|2",
-            "arrow style (default 0 = Fig, 1 = PST with Fig sizes,\n   2 = PST default, ignore Fig sizes)",
+            "arrow style (default 0 = Fig, 1 = PST with Fig sizes,\n 2 = PST default, ignore Fig sizes)",
         ),
         o(
             'S',
