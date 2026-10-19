@@ -230,7 +230,7 @@ pub const LANGUAGES: &[Language] = &[
     lang("pcx", "PCX (PC Paintbrush)", "pcx", &[], Bitmap, Available),
     lang("png", "PNG (Portable Network Graphics)", "png", &[], Bitmap, Available),
     lang("ppm", "PPM (Portable Pixmap)", "ppm", &[], Bitmap, Available),
-    lang("sld", "SLD (AutoCad Slide)", "sld", &[], Bitmap, Planned("B9")),
+    lang("sld", "SLD (AutoCad Slide)", "sld", &[], Bitmap, Available),
     lang("tiff", "TIFF (no compression)", "tif", &["tiff"], Bitmap, Available),
     lang("xbm", "XBM (X11 Bitmap)", "xbm", &[], Bitmap, Available),
     lang("xpm", "XPM (X11 Pixmap)", "xpm", &[], Bitmap, Available),

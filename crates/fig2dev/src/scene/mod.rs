@@ -24,6 +24,7 @@ pub mod pdf;
 pub mod preview;
 mod ps_cmap;
 pub mod raster;
+pub mod sld;
 pub mod svg;
 mod textcache;
 

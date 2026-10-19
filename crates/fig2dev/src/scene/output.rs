@@ -24,6 +24,8 @@ pub enum ExportFormat {
     Jpeg,
     Pcx,
     Ppm,
+    /// AutoCAD slide (`ppmtoacad`).
+    Sld,
     Tiff,
     Xbm,
     Xpm,
@@ -41,6 +43,7 @@ impl ExportFormat {
             "jpeg" | "jpg" => Some(ExportFormat::Jpeg),
             "pcx" => Some(ExportFormat::Pcx),
             "ppm" => Some(ExportFormat::Ppm),
+            "sld" => Some(ExportFormat::Sld),
             "tiff" | "tif" => Some(ExportFormat::Tiff),
             "xbm" => Some(ExportFormat::Xbm),
             "xpm" => Some(ExportFormat::Xpm),
@@ -64,6 +67,7 @@ impl ExportFormat {
             ExportFormat::Jpeg => "jpg",
             ExportFormat::Pcx => "pcx",
             ExportFormat::Ppm => "ppm",
+            ExportFormat::Sld => "sld",
             ExportFormat::Tiff => "tif",
             ExportFormat::Xbm => "xbm",
             ExportFormat::Xpm => "xpm",
@@ -302,6 +306,7 @@ pub fn write_with_notes(
         | ExportFormat::Jpeg
         | ExportFormat::Pcx
         | ExportFormat::Ppm
+        | ExportFormat::Sld
         | ExportFormat::Tiff
         | ExportFormat::Xbm
         | ExportFormat::Xpm => {
