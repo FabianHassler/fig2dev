@@ -18,7 +18,9 @@ fn fig2dev(args: &[&str], stdin: &str) -> Output {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+    // fig2dev may exit before reading stdin (an option error, a file
+    // argument): the write then fails with a broken pipe, which is fine.
+    let _ = child.stdin.take().unwrap().write_all(stdin.as_bytes());
     child.wait_with_output().unwrap()
 }
 
