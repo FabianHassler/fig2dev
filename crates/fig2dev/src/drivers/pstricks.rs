@@ -1496,7 +1496,7 @@ impl Pstricks {
 /// `-p`: converts picture `src` to the EPS file `dest` (C: `bmeps -c -t
 /// TYPE src dest`). Pixels are written at 1 pixel = 1 point, alpha over
 /// white. `Err` when the picture cannot be read or the file written.
-fn convert_to_eps(ctx: &Ctx, src: &str, dest: &str) -> Result<(), String> {
+fn convert_to_eps(ctx: &mut Ctx, src: &str, dest: &str) -> Result<(), String> {
     let eps = match readpics::load_picture(ctx, src)? {
         readpics::LoadedPicture::Raster(img) => crate::scene::eps::raster_eps(&img).ok_or("empty picture")?,
         _ => return Err(format!("{src}: not a bitmap")),

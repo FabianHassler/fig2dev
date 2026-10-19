@@ -1840,9 +1840,17 @@ impl Emf {
             flipped: pic0.flipped,
             ..Pic::default()
         };
-        if stream.data.starts_with(b"\x89PNG\r\n\x1a\n") && read_png(ctx, &stream.data, &mut pic).is_err() {
-            self.msg(format!("fig2dev: {}: illegal format", pic0.file));
-            return;
+        if stream.data.starts_with(b"\x89PNG\r\n\x1a\n") {
+            let mut msgs = Vec::new();
+            let r = read_png(ctx, &stream.data, &mut pic, &mut msgs);
+            self.msgs.append(&mut msgs);
+            if let Err(e) = r {
+                if !e.is_empty() {
+                    self.msg(e);
+                }
+                self.msg(format!("fig2dev: {}: illegal format", pic0.file));
+                return;
+            }
         }
         if pic.subtype != P_PNG {
             self.msg(format!("fig2dev: {}: emf: unsupported picture format", pic0.file));

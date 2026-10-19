@@ -39,7 +39,7 @@ fn read(ctx: &Ctx, name: &str) -> Pic {
         file: name.into(),
         ..Pic::default()
     };
-    read_pic(ctx, &stream, &mut pic).unwrap_or_else(|e| panic!("{name}: {e}"));
+    read_pic(&mut ctx.clone(), &stream, &mut pic).unwrap_or_else(|e| panic!("{name}: {e}"));
     pic
 }
 
@@ -120,7 +120,7 @@ fn missing_and_junk_pictures_are_errors() {
     std::fs::write(dir.join("junk.png"), b"not a picture at all").unwrap();
     let s = open_stream(&ctx, "junk.png").unwrap();
     let mut pic = Pic::default();
-    assert!(read_pic(&ctx, &s, &mut pic).is_err());
+    assert!(read_pic(&mut ctx.clone(), &s, &mut pic).is_err());
 
     std::fs::write(dir.join("bad.gif.gz"), b"\x1f\x8b\x08\x00garbage").unwrap();
     assert!(open_stream(&ctx, "bad.gif").is_err());
@@ -131,7 +131,7 @@ fn missing_and_junk_pictures_are_errors() {
     )
     .unwrap();
     let s = open_stream(&ctx, "trunc.png").unwrap();
-    assert!(read_pic(&ctx, &s, &mut pic).is_err());
+    assert!(read_pic(&mut ctx.clone(), &s, &mut pic).is_err());
 
     std::fs::write(dir.join("x.bz2"), b"BZh").unwrap();
     assert!(open_stream(&ctx, "x").unwrap_err().contains("bzip2"));

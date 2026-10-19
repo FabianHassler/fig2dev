@@ -185,8 +185,14 @@ pub struct Pic {
     /// Colour map, `cmap[RED|GREEN|BLUE][i]`, `numcols` entries used.
     pub cmap: Vec<[u8; 3]>,
     pub numcols: i32,
+    /// `0`: none, `-1` (`TRANSP_COLOR`): the colour `transp_col`, else the
+    /// number of entries in `transp_cols`.
     pub num_transp: i32,
     pub transp_col: [u8; 3],
+    /// Transparent colour map entries (C's `transp_cols`, a pointer into
+    /// `transp_col` or a malloc'ed array): the transparent index of a GIF, or
+    /// the `tRNS` alpha values of a PNG palette.
+    pub transp_cols: Vec<u8>,
     pub hw_ratio: f32,
     pub bit_size: Point,
 }

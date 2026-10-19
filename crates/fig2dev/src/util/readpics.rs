@@ -11,24 +11,30 @@
 //!   `.bz` and `.xz` files are found but reported as unsupported: RustFig
 //!   does not run external programs.
 //! - [`pic_type`]: the file signatures genps.c recognises.
-//! - [`read_pic`]: fills `Pic`. A picture with ≤ 256 colours becomes an
-//!   indexed bitmap (one byte per pixel, `cmap`, `numcols`), one with more
-//!   an RGB bitmap (three bytes per pixel, `numcols` = 2^24), as
-//!   `read_png` does for all formats. An alpha channel is composited over
-//!   the background (white, or `-g`) and that colour becomes the
-//!   transparent colour (`TRANSP_COLOR`), as in `read_png`. `-N`
-//!   (`grayonly`) maps colours to grey. XBM gives the packed bits
+//! - [`read_pic`]: fills `Pic`, with fig2dev's messages ("NAME: Bad PNG
+//!   format", "NAME: Unknown image format", libpng's own lines). PNG goes
+//!   through [`read_png`] (readpng.c: file palette order, libpng's gamma
+//!   and alpha arithmetic with `gAMA`/`bKGD`, `tRNS` as `num_transp` and
+//!   `transp_cols`). GIF, PPM, TIFF and XPM go through `giftopnm`,
+//!   `ppmtopcx` and the like in C and so arrive as PCX pictures: a picture
+//!   with ≤ 256 colours is an indexed bitmap (one byte per pixel, `cmap`,
+//!   `numcols`, colours in order of first use where netpbm's order is a
+//!   hash), one with more an RGB bitmap (`numcols` = 2^24); alpha is
+//!   dropped (XPM `None` is black); a GIF's transparent colour is found in
+//!   the colour map again and its index kept in `transp_cols[0]`. Other
+//!   formats' alpha is composited over the background (white, or `-g`).
+//!   `-N` (`grayonly`) maps colours to grey. XBM gives the packed bits
 //!   (`numcols` 0), EPS and PDF only their bounding box.
 //!
-//! PNG, JPEG, GIF, TIFF and PNM are decoded by the `image` crate; PCX by
-//! a port of readpcx.c; XBM and XPM by small readers written for RustFig
-//! (C converts XPM with external programs; its XBM reader derives from
-//! X11's `XReadBitmapFromFile`). Sizes are capped ([`MAX_PICFILE_BYTES`],
-//! [`MAX_PIXELS`]); hostile files give an error, never a panic.
+//! PNG is decoded by the `png` crate, GIF by `gif`, JPEG and TIFF by the
+//! `image` crate; PCX, XBM and PPM are ports of readpcx.c, readxbm.c and
+//! readppm.c, XPM a reader written for RustFig (C converts it with external
+//! programs). Sizes are capped ([`MAX_PICFILE_BYTES`], [`MAX_PIXELS`]);
+//! hostile files give an error, never a panic.
 //
 // Ported from fig2dev dev/readpics.c, dev/readpics.h, dev/readeps.c,
-// dev/readpcx.c, dev/readpng.c and the picture signatures of dev/genps.c
-// (xfig licence, see LICENSE-xfig).
+// dev/readpcx.c, dev/readpng.c, dev/readppm.c, dev/readxbm.c, dev/readgif.c
+// and the picture signatures of dev/genps.c (xfig licence, see LICENSE-xfig).
 
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
@@ -383,10 +389,10 @@ impl PicType {
     }
 }
 
-/// The type of a picture from its first bytes. PPM also accepts the other
-/// PNM variants (P1–P5), which C rejects.
+/// The type of a picture from its first bytes (genps.c's `headers`): PPM
+/// is `P3` or `P6` only, JPEG a JFIF or Exif header.
 pub fn pic_type(data: &[u8]) -> Option<PicType> {
-    const HEADERS: [(&[u8], PicType); 15] = [
+    const HEADERS: [(&[u8], PicType); 14] = [
         (b"GIF", PicType::Gif),
         (b"\x0a\x05\x01", PicType::Pcx),
         (b"%!", PicType::Eps),
@@ -401,40 +407,50 @@ pub fn pic_type(data: &[u8]) -> Option<PicType> {
         (b"\xff\xd8\xff\xe0", PicType::Jpeg),
         (b"\xff\xd8\xff\xe1", PicType::Jpeg),
         (b"/* XPM */", PicType::Xpm),
-        (b"\xff\xd8\xff", PicType::Jpeg),
     ];
-    if let Some(&(_, t)) = HEADERS.iter().find(|(h, _)| data.starts_with(h)) {
-        return Some(t);
-    }
-    match data {
-        [b'P', b'1'..=b'5', ws, ..] if ws.is_ascii_whitespace() => Some(PicType::Ppm),
-        _ => None,
-    }
+    HEADERS.iter().find(|(h, _)| data.starts_with(h)).map(|&(_, t)| t)
 }
 
 /// Reads picture `stream` into `pic` (the `read_*` functions): sets
 /// `subtype`, `bit_size`, `hw_ratio` and, for bitmaps, `bitmap`, `cmap`,
 /// `numcols`, `num_transp`, `transp_col`. Returns the lower left corner of
 /// the bounding box (`llx`, `lly`; 0 except for EPS and PDF).
-pub fn read_pic(ctx: &Ctx, stream: &PicStream, pic: &mut Pic) -> Result<(i32, i32), String> {
-    let t = pic_type(&stream.data).ok_or_else(|| format!("{}: Unknown image format", stream.name))?;
+pub fn read_pic(ctx: &mut Ctx, stream: &PicStream, pic: &mut Pic) -> Result<(i32, i32), String> {
+    let file = if pic.file.is_empty() {
+        stream.name.clone()
+    } else {
+        pic.file.clone()
+    };
+    let t = pic_type(&stream.data).ok_or_else(|| format!("{file}: Unknown image format"))?;
+    let mut msgs = Vec::new();
     let r = match t {
         PicType::Eps | PicType::Epsi => read_eps(&stream.data, pic),
         PicType::Pdf => read_pdf(&stream.data, pic),
         PicType::Xbm => read_xbm(&stream.data, pic).map(|()| (0, 0)),
         PicType::Xpm => read_xpm(ctx, &stream.data, pic).map(|()| (0, 0)),
         PicType::Pcx => read_pcx(ctx, &stream.data, pic).map(|()| (0, 0)),
-        PicType::Gif => read_raster(ctx, &stream.data, image::ImageFormat::Gif, t, pic),
-        PicType::Ppm => read_raster(ctx, &stream.data, image::ImageFormat::Pnm, t, pic),
+        PicType::Gif => read_gif(ctx, &stream.data, pic).map(|()| (0, 0)),
+        PicType::Ppm => read_ppm(ctx, &stream.data, pic).map(|()| (0, 0)),
         PicType::Tiff => read_raster(ctx, &stream.data, image::ImageFormat::Tiff, t, pic),
-        PicType::Png => read_raster(ctx, &stream.data, image::ImageFormat::Png, t, pic),
+        PicType::Png => read_png(ctx, &stream.data, pic, &mut msgs).map(|()| (0, 0)),
         PicType::Jpeg => read_raster(ctx, &stream.data, image::ImageFormat::Jpeg, t, pic),
     };
-    r.map_err(|e| format!("{}: {e}", stream.name))
+    for m in msgs {
+        ctx.warn(m);
+    }
+    // genps.c: "%s: Bad %s format", after any message of the library
+    r.map_err(|e| {
+        let bad = format!("{file}: Bad {} format", t.name());
+        if e.is_empty() || !e.starts_with("libpng ") {
+            bad
+        } else {
+            format!("{e}\n{bad}")
+        }
+    })
 }
 
 /// `open_stream` and `read_pic` in one.
-pub fn read_picture(ctx: &Ctx, pic: &mut Pic) -> Result<(i32, i32), String> {
+pub fn read_picture(ctx: &mut Ctx, pic: &mut Pic) -> Result<(i32, i32), String> {
     let stream = open_stream_pic(ctx, pic)?;
     read_pic(ctx, &stream, pic)
 }
@@ -503,6 +519,15 @@ pub fn fill_from_rgba(ctx: &Ctx, pic: &mut Pic, w: u32, h: u32, rgba: &[u8]) -> 
         [0; 3]
     };
 
+    index_pixels(pic, pixels, w, h);
+    Ok(())
+}
+
+/// What `ppmtopcx` does with the pixels: a picture of at most 256 colours
+/// becomes an indexed bitmap (colour map in order of first use; netpbm's
+/// is in hash order), one of more an RGB bitmap.
+fn index_pixels(pic: &mut Pic, pixels: Vec<[u8; 3]>, w: u32, h: u32) {
+    let n = pixels.len();
     let mut index: HashMap<[u8; 3], u8> = HashMap::new();
     let mut cmap: Vec<[u8; 3]> = Vec::new();
     let mut indexed = Vec::with_capacity(n);
@@ -532,10 +557,164 @@ pub fn fill_from_rgba(ctx: &Ctx, pic: &mut Pic, w: u32, h: u32, rgba: &[u8]) -> 
         pic.numcols = RGB_NUMCOLS;
     }
     set_size(pic, w, h);
+}
+
+/// Fills `pic` from RGB pixels the way the readers that go through
+/// `giftopnm | ppmtopcx` do, with the colour `transparent` standing for
+/// transparency: C finds it again in the colour map (the first entry with
+/// that colour, after `-N` has made the map grey) and keeps its index in
+/// `transp_cols`; if no entry has it, there is no transparency.
+fn fill_indexed(ctx: &Ctx, pic: &mut Pic, w: u32, h: u32, rgb: Vec<[u8; 3]>, transparent: Option<[u8; 3]>) {
+    let pixels: Vec<[u8; 3]> = if ctx.grayonly {
+        rgb.iter().map(|&c| [luminance(c); 3]).collect()
+    } else {
+        rgb
+    };
+    index_pixels(pic, pixels, w, h);
+    pic.num_transp = NO_TRANSPARENCY;
+    pic.transp_col = [0; 3];
+    pic.transp_cols = Vec::new();
+    if let Some(t) = transparent {
+        if let Some(i) = pic.cmap.iter().position(|&c| c == t) {
+            pic.num_transp = 1;
+            pic.transp_cols = vec![i as u8];
+        }
+    }
+}
+
+/// `read_gif`: the first image of a GIF file, with its colours (C runs
+/// `giftopnm | ppmtopcx`). The transparent colour of the graphic control
+/// extension becomes `transp_cols[0]`, the index of that colour in the
+/// colour map; see [`fill_indexed`].
+fn read_gif(ctx: &Ctx, data: &[u8], pic: &mut Pic) -> Result<(), String> {
+    let mut options = gif::DecodeOptions::new();
+    options.set_color_output(gif::ColorOutput::Indexed);
+    options.set_memory_limit(gif::MemoryLimit::Bytes(
+        std::num::NonZeroU64::new(MAX_PIXELS * 4).unwrap_or(std::num::NonZeroU64::MIN),
+    ));
+    let mut decoder = options.read_info(Cursor::new(data)).map_err(|e| e.to_string())?;
+    let global: Option<Vec<u8>> = decoder.global_palette().map(<[u8]>::to_vec);
+    let frame = decoder
+        .read_next_frame()
+        .map_err(|e| e.to_string())?
+        .ok_or("no image")?;
+    let (w, h) = (u32::from(frame.width), u32::from(frame.height));
+    check_size(u64::from(w), u64::from(h))?;
+    let palette = frame.palette.as_deref().or(global.as_deref()).unwrap_or(&[]);
+    let colour = |i: u8| -> [u8; 3] {
+        let at = usize::from(i) * 3;
+        match palette.get(at..at + 3) {
+            Some(&[r, g, b]) => [r, g, b],
+            _ => [0; 3],
+        }
+    };
+    let rgb: Vec<[u8; 3]> = frame.buffer.iter().map(|&i| colour(i)).collect();
+    if rgb.len() != (w as usize) * (h as usize) {
+        return Err("short image data".into());
+    }
+    let transparent = frame.transparent.map(colour);
+    fill_indexed(ctx, pic, w, h, rgb, transparent);
+    // `_read_pcx` sets the subtype
+    pic.subtype = P_PCX;
     Ok(())
 }
 
-/// GIF, PNM, TIFF, PNG, JPEG through the `image` crate.
+/// `skip_comments_whitespace`: white space and `#` comments up to the end of
+/// the line.
+fn ppm_skip(data: &[u8], pos: &mut usize) {
+    while let Some(&c) = data.get(*pos) {
+        if c == b'#' {
+            while data.get(*pos).is_some_and(|&c| c != b'\n') {
+                *pos += 1;
+            }
+        } else if c.is_ascii_whitespace() || c == 0x0b {
+            *pos += 1;
+        } else {
+            break;
+        }
+    }
+}
+
+/// `fscanf("%u")`: white space, then decimal digits (wrapping like an
+/// unsigned `int`).
+fn ppm_uint(data: &[u8], pos: &mut usize) -> Option<u32> {
+    while data.get(*pos).is_some_and(|c| c.is_ascii_whitespace() || *c == 0x0b) {
+        *pos += 1;
+    }
+    let start = *pos;
+    let mut v = 0u32;
+    while let Some(&c) = data.get(*pos).filter(|c| c.is_ascii_digit()) {
+        v = v.wrapping_mul(10).wrapping_add(u32::from(c - b'0'));
+        *pos += 1;
+    }
+    (*pos > start).then_some(v)
+}
+
+/// `read_ppm` (readppm.c): a binary (`P6`) or ASCII (`P3`) PPM of any
+/// `maxval` up to 65535, scaled to 0-255 as `_read_ppm` does (a value
+/// above `maxval` is clamped in ASCII files); C reads it through
+/// `ppmtopcx`, so the picture is then indexed when it has at most 256
+/// colours.
+fn read_ppm(ctx: &Ctx, data: &[u8], pic: &mut Pic) -> Result<(), String> {
+    let bad = || "bad PPM".to_string();
+    let magic = match data.get(..2) {
+        Some(b"P6") => 6,
+        Some(b"P3") => 3,
+        _ => return Err(bad()),
+    };
+    let mut pos = 2usize;
+    ppm_skip(data, &mut pos);
+    let width = ppm_uint(data, &mut pos).ok_or_else(bad)?;
+    ppm_skip(data, &mut pos);
+    let height = ppm_uint(data, &mut pos).ok_or_else(bad)?;
+    if width == 0 || height == 0 {
+        return Err(bad());
+    }
+    ppm_skip(data, &mut pos);
+    let maxval = ppm_uint(data, &mut pos).ok_or_else(bad)?;
+    if maxval == 0 || maxval > 65535 {
+        return Err(bad());
+    }
+    if magic == 6 {
+        // exactly one white space character ends the header
+        pos += 1;
+    }
+    check_size(u64::from(width), u64::from(height))?;
+    let n = (width as usize) * (height as usize) * 3;
+    let rnd = maxval / 2;
+    let scale = |v: u32| (v.wrapping_mul(255).wrapping_add(rnd)) / maxval;
+    let mut samples: Vec<u8> = Vec::with_capacity(n);
+    if magic == 6 {
+        let wide = maxval >= 256;
+        let bytes = data.get(pos..).unwrap_or(&[]);
+        if bytes.len() < n * if wide { 2 } else { 1 } {
+            return Err(bad());
+        }
+        if wide {
+            for c in bytes.as_chunks::<2>().0.iter().take(n) {
+                let v = scale((u32::from(c[0]) << 8) + u32::from(c[1]));
+                samples.push(v.min(255) as u8);
+            }
+        } else {
+            // C scales the byte in place: a value above `maxval` wraps
+            for &b in bytes.iter().take(n) {
+                samples.push(if maxval == 255 { b } else { scale(u32::from(b)) as u8 });
+            }
+        }
+    } else {
+        for _ in 0..n {
+            let v = ppm_uint(data, &mut pos).ok_or_else(bad)?;
+            samples.push(if maxval == 255 { v.min(255) } else { scale(v).min(255) } as u8);
+        }
+    }
+    let pixels: Vec<[u8; 3]> = samples.as_chunks::<3>().0.to_vec();
+    fill_indexed(ctx, pic, width, height, pixels, None);
+    // `_read_pcx` sets the subtype
+    pic.subtype = P_PCX;
+    Ok(())
+}
+
+/// TIFF and JPEG through the `image` crate.
 fn read_raster(
     ctx: &Ctx,
     data: &[u8],
@@ -551,45 +730,246 @@ fn read_raster(
     reader.limits(limits);
     let img = reader.decode().map_err(|e| e.to_string())?;
     check_size(u64::from(img.width()), u64::from(img.height()))?;
+    if t == PicType::Tiff {
+        // `ppmtopcx` / `tifftopnm | ppmtopcx`: the pixels without an alpha
+        // channel; `_read_pcx` sets the subtype
+        let rgb = img.to_rgb8();
+        let pixels: Vec<[u8; 3]> = rgb.as_raw().as_chunks::<3>().0.to_vec();
+        fill_indexed(ctx, pic, rgb.width(), rgb.height(), pixels, None);
+        pic.subtype = P_PCX;
+        return Ok((0, 0));
+    }
     let rgba = img.to_rgba8();
     fill_from_rgba(ctx, pic, rgba.width(), rgba.height(), rgba.as_raw())?;
     pic.subtype = t.subtype();
     Ok((0, 0))
 }
 
-/// libpng's alpha composition as `read_png` sets it up (`png_set_gamma(2.2,
-/// 0.45455)`, background in screen gamma): 8-bit tables to and from linear
-/// light, `png_composite` in between.
-fn compose_gamma(fg: u32, alpha: u32, bg: u8) -> u32 {
-    let table = |v: u32, g: f64| (255.0 * (f64::from(v) / 255.0).powf(g) + 0.5) as u32;
-    let (f, b) = (table(fg, 2.2), table(u32::from(bg), 2.2));
-    let temp = f * alpha + b * (255 - alpha) + 128;
-    let w = (temp + (temp >> 8)) >> 8;
-    table(w.min(255), 0.45455)
+/// libpng's fixed-point gamma arithmetic (pngrtran.c, pngset.c): values in
+/// units of 1/100000.
+const PNG_FP_1: i64 = 100_000;
+/// The screen gamma `read_png` passes to `png_set_gamma`.
+const SCREEN_GAMMA: i64 = 220_000;
+/// The file gamma `read_png` assumes without a `gAMA` chunk.
+const DEFAULT_FILE_GAMMA: i64 = 45_455;
+
+/// `png_reciprocal`: 1/a, rounded.
+fn png_reciprocal(a: i64) -> i64 {
+    if a == 0 {
+        return 0;
+    }
+    ((PNG_FP_1 as f64 * PNG_FP_1 as f64) / a as f64 + 0.5).floor() as i64
 }
 
-/// `read_png` (readpng.c, used by the EMF driver): like libpng with
-/// packing and 16 to 8 bit scaling, so unlike `read_pic`'s PNG path it keeps
-/// the file's palette (in file order) and gives grey images a ramp colour
-/// map of `1 << bit_depth` entries; RGB images have 3 bytes per pixel and
-/// `numcols == RGB_NUMCOLS`. Alpha is composited linearly over the
-/// background (libpng also applies gamma); `bKGD` and `gAMA` are ignored.
-pub fn read_png(ctx: &Ctx, data: &[u8], pic: &mut Pic) -> Result<(), String> {
+/// `png_reciprocal2`: 1/(a*b), rounded.
+fn png_reciprocal2(a: i64, b: i64) -> i64 {
+    if a == 0 || b == 0 {
+        return 0;
+    }
+    let p = (PNG_FP_1 as f64).powi(3) / (a as f64 * b as f64);
+    (p + 0.5).floor() as i64
+}
+
+/// `png_build_8bit_table`: the identity unless the gamma is significant
+/// (more than 5 % from 1), else `png_gamma_8bit_correct` for 1..=254.
+fn png_table(gamma: i64) -> [u8; 256] {
+    let significant = !(95_000..=105_000).contains(&gamma);
+    let mut t = [0u8; 256];
+    for (i, e) in t.iter_mut().enumerate() {
+        *e = if significant && i > 0 && i < 255 {
+            (255.0 * (i as f64 / 255.0).powf(gamma as f64 * 0.000_01) + 0.5).floor() as u8
+        } else {
+            i as u8
+        };
+    }
+    t
+}
+
+/// `png_build_16bit_table` flattened: libpng looks a 16-bit value `v` up
+/// as `table[(v & 0xff) >> shift][v >> 8]`; with `png_set_scale_16` the
+/// shift is at least 5, so only the top 11 bits of `v` count, scaled back
+/// to 16 bits before the gamma function is applied.
+fn png_table16(gamma: i64) -> Vec<u16> {
+    const SHIFT: u32 = 5;
+    let significant = !(95_000..=105_000).contains(&gamma);
+    let max = (1u64 << (16 - SHIFT)) - 1;
+    let max_by_2 = 1u64 << (15 - SHIFT);
+    (0..=65535u64)
+        .map(|v| {
+            let ig = ((v >> SHIFT) * 65535 + max_by_2) / max;
+            if significant && ig > 0 && ig < 65535 {
+                (65535.0 * (ig as f64 / 65535.0).powf(gamma as f64 * 0.000_01) + 0.5).floor() as u16
+            } else {
+                ig as u16
+            }
+        })
+        .collect()
+}
+
+/// `png_scale_16_to_8`'s arithmetic (`PNG_DIV257`).
+fn scale16(v: u16) -> u8 {
+    ((u32::from(v) * 255 + 32895) >> 16) as u8
+}
+
+/// How `read_png` makes libpng composite an alpha channel.
+#[derive(Clone, Copy, PartialEq)]
+enum PngBackground {
+    /// `bKGD` chunk, `PNG_BACKGROUND_GAMMA_FILE`.
+    File,
+    /// `-g` colour or white, `PNG_BACKGROUND_GAMMA_SCREEN`.
+    Screen,
+}
+
+/// libpng's 8-bit gamma and composition tables for `png_set_gamma(2.2,
+/// file_gamma)`.
+struct PngGamma {
+    /// File to screen (`gamma_table`), for pixels without alpha.
+    table: [u8; 256],
+    /// File to linear (`gamma_to_1`).
+    to1: [u8; 256],
+    /// Linear to screen (`gamma_from_1`).
+    from1: [u8; 256],
+    /// Screen to linear, for a background given in screen gamma.
+    screen_to1: [u8; 256],
+}
+
+impl PngGamma {
+    fn new(file_gamma: i64) -> Self {
+        Self {
+            table: png_table(png_reciprocal2(file_gamma, SCREEN_GAMMA)),
+            to1: png_table(png_reciprocal(file_gamma)),
+            from1: png_table(png_reciprocal(SCREEN_GAMMA)),
+            screen_to1: png_table(SCREEN_GAMMA),
+        }
+    }
+
+    /// `png_do_compose` for one 8-bit sample with 8-bit alpha `a` over
+    /// background `bg`.
+    fn compose(&self, c: u8, a: u8, bg: u8, mode: PngBackground) -> u8 {
+        let at = |t: &[u8; 256], i: u8| t.get(usize::from(i)).copied().unwrap_or(i);
+        match a {
+            255 => at(&self.table, c),
+            0 => match mode {
+                PngBackground::File => at(&self.table, bg),
+                PngBackground::Screen => bg,
+            },
+            _ => {
+                let bl = match mode {
+                    PngBackground::File => at(&self.to1, bg),
+                    PngBackground::Screen => at(&self.screen_to1, bg),
+                };
+                let t = u32::from(at(&self.to1, c)) * u32::from(a) + u32::from(bl) * (255 - u32::from(a)) + 128;
+                let w = ((t + (t >> 8)) >> 8).min(255) as u8;
+                at(&self.from1, w)
+            }
+        }
+    }
+}
+
+/// libpng's 16-bit tables: images with 16 bits per sample are gamma
+/// corrected and composited at 16 bits, then scaled to 8.
+struct PngGamma16 {
+    table: Vec<u16>,
+    to1: Vec<u16>,
+    from1: Vec<u16>,
+    screen_to1: Vec<u16>,
+}
+
+impl PngGamma16 {
+    fn new(file_gamma: i64) -> Self {
+        Self {
+            table: png_table16(png_reciprocal2(file_gamma, SCREEN_GAMMA)),
+            to1: png_table16(png_reciprocal(file_gamma)),
+            from1: png_table16(png_reciprocal(SCREEN_GAMMA)),
+            screen_to1: png_table16(SCREEN_GAMMA),
+        }
+    }
+
+    /// Gamma correction of a sample without alpha, as 8 bits.
+    fn correct(&self, v: u16) -> u8 {
+        scale16(self.table.get(usize::from(v)).copied().unwrap_or(v))
+    }
+
+    /// `png_do_compose` for one 16-bit sample, as 8 bits.
+    fn compose(&self, c: u16, a: u16, bg: u16, mode: PngBackground) -> u8 {
+        let at = |t: &[u16], i: u16| t.get(usize::from(i)).copied().unwrap_or(i);
+        let w = match a {
+            65535 => at(&self.table, c),
+            0 => match mode {
+                PngBackground::File => at(&self.table, bg),
+                PngBackground::Screen => bg,
+            },
+            _ => {
+                let bl = match mode {
+                    PngBackground::File => at(&self.to1, bg),
+                    PngBackground::Screen => at(&self.screen_to1, bg),
+                };
+                let t = u64::from(at(&self.to1, c)) * u64::from(a) + u64::from(bl) * (65535 - u64::from(a)) + 32768;
+                let w = ((t + (t >> 16)) >> 16).min(65535) as u16;
+                at(&self.from1, w)
+            }
+        };
+        scale16(w)
+    }
+}
+
+/// The text libpng prints (`libpng error: …`) for a decoding failure, where
+/// the `png` crate's error identifies the same fault.
+fn libpng_error(data: &[u8], e: &png::DecodingError) -> Option<String> {
+    let s = e.to_string();
+    if matches!(e, png::DecodingError::IoError(_)) || s.contains("end of file") || s.contains("EndOfFile") {
+        return Some("libpng error: Read Error".into());
+    }
+    if s.contains("Missing palette") {
+        return Some("libpng error: IDAT: Missing PLTE before IDAT".into());
+    }
+    if s.contains("before IHDR") {
+        // libpng names the first chunk when its type is not a valid one
+        let name = data.get(12..16)?;
+        let valid = name.iter().all(u8::is_ascii_alphabetic) && name.get(2).is_some_and(u8::is_ascii_uppercase);
+        if !valid {
+            let n: String = name.iter().map(|&b| char::from(b)).collect();
+            return Some(format!("libpng error: {n}: bad header (invalid type)"));
+        }
+    }
+    None
+}
+
+/// `read_png` (readpng.c): like libpng with packing, 16 to 8 bit scaling
+/// and `png_set_gamma(2.2, file gamma)`. Unlike `read_pic`'s other readers
+/// it keeps the file's palette (in file order) and gives grey images a ramp
+/// colour map of `1 << bit_depth` entries; RGB images have 3 bytes per
+/// pixel and `numcols == RGB_NUMCOLS`. Transparency: a palette with `tRNS`
+/// gets `num_transp` entries in `transp_cols` (the alpha values, as C
+/// stores them), a grey or RGB image with `tRNS` the colour in
+/// `transp_col`; an alpha channel is composited (libpng's gamma
+/// arithmetic) over the `bKGD` colour, the `-g` colour or white, which
+/// becomes `transp_col`. libpng's warnings go to `msgs`; the `Err` carries
+/// libpng's own error message, if any (else an empty string).
+pub fn read_png(ctx: &Ctx, data: &[u8], pic: &mut Pic, msgs: &mut Vec<String>) -> Result<(), String> {
     let limits = png::Limits {
         bytes: (MAX_PIXELS as usize).saturating_mul(8),
     };
+    let fail = |e: png::DecodingError| libpng_error(data, &e).unwrap_or_default();
     let decoder = png::Decoder::new_with_limits(Cursor::new(data), limits);
-    let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
+    let mut reader = decoder.read_info().map_err(fail)?;
     let (w, h, color, depth) = {
         let i = reader.info();
         (i.width, i.height, i.color_type, i.bit_depth as u8)
     };
-    check_size(u64::from(w), u64::from(h))?;
-    let palette: Option<Vec<u8>> = reader.info().palette.as_ref().map(|p| p.to_vec());
-    let trns: Option<Vec<u8>> = reader.info().trns.as_ref().map(|p| p.to_vec());
-    let size = reader.output_buffer_size().ok_or("image too large")?;
+    check_size(u64::from(w), u64::from(h)).map_err(|_| String::new())?;
+    let info = reader.info();
+    let palette: Option<Vec<u8>> = info.palette.as_ref().map(|p| p.to_vec());
+    let mut trns: Option<Vec<u8>> = info.trns.as_ref().map(|p| p.to_vec());
+    let bkgd: Option<Vec<u8>> = info.bkgd.as_ref().map(|p| p.to_vec());
+    let file_gamma = match &info.gama_chunk {
+        Some(g) if g.into_scaled() != 0 => i64::from(g.into_scaled()),
+        _ => DEFAULT_FILE_GAMMA,
+    };
+    let interlaced = info.interlaced;
+    let size = reader.output_buffer_size().ok_or_else(String::new)?;
     let mut buf = vec![0u8; size];
-    let frame = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
+    let frame = reader.next_frame(&mut buf).map_err(fail)?;
     let line = frame.line_size;
     let channels = match color {
         png::ColorType::Grayscale | png::ColorType::Indexed => 1,
@@ -598,40 +978,105 @@ pub fn read_png(ctx: &Ctx, data: &[u8], pic: &mut Pic) -> Result<(), String> {
         png::ColorType::Rgba => 4,
     };
     // Sample `k` of row `y`, 16 bit scaled to 8 (libpng's png_set_scale_16).
-    let sample = |y: usize, k: usize| -> u32 {
+    let sample = |y: usize, k: usize| -> u8 {
         let row = buf.get(y * line..).unwrap_or(&[]);
         match depth {
             16 => {
                 let v = row
                     .get(2 * k..2 * k + 2)
                     .map_or(0, |b| u32::from(b[0]) << 8 | u32::from(b[1]));
-                (v * 255 + 32895) >> 16
+                ((v * 255 + 32895) >> 16) as u8
             }
-            8 => u32::from(row.get(k).copied().unwrap_or(0)),
+            8 => row.get(k).copied().unwrap_or(0),
             d => {
                 let bit = k * usize::from(d);
                 let byte = row.get(bit / 8).copied().unwrap_or(0);
                 let shift = 8 - usize::from(d) - bit % 8;
-                u32::from(byte >> shift) & ((1 << d) - 1)
+                (byte >> shift) & ((1u8 << d) - 1)
             }
         }
     };
+    // the 16-bit sample `k` of row `y`
+    let raw16 = |y: usize, k: usize| -> u16 {
+        let row = buf.get(y * line..).unwrap_or(&[]);
+        row.get(2 * k..2 * k + 2)
+            .map_or(0, |b| u16::from(b[0]) << 8 | u16::from(b[1]))
+    };
     let (w, h) = (w as usize, h as usize);
-    let bg = background(ctx);
+    let gamma = PngGamma::new(file_gamma);
+    let g16 = (depth == 16).then(|| PngGamma16::new(file_gamma));
     let gray_depth = if depth == 16 { 8 } else { u32::from(depth) };
-    let mut bitmap: Vec<u8> = Vec::new();
+    let has_alpha = matches!(color, png::ColorType::GrayscaleAlpha | png::ColorType::Rgba);
+    // libpng ignores a tRNS chunk next to an alpha channel, or one with more
+    // entries than the palette
+    let mut warn: Vec<&str> = Vec::new();
+    if interlaced {
+        // png_read_image turns the handling on itself
+        warn.push("libpng warning: Interlace handling should be turned on when using png_read_image");
+    }
+    if has_alpha {
+        trns = None;
+    }
+    let num_palette = palette.as_ref().map_or(0, |p| p.len() / 3);
+    if color == png::ColorType::Indexed && trns.as_ref().is_some_and(|t| t.len() > num_palette) {
+        warn.push("libpng warning: tRNS: invalid");
+        trns = None;
+    }
+    // the background alpha is composited over
+    let bg16: [u16; 3];
+    let (bg, mode) = if let Some(b) = bkgd.as_ref().filter(|_| has_alpha) {
+        let v = |i: usize| {
+            b.get(2 * i..2 * i + 2)
+                .map_or(0, |p| u16::from(p[0]) << 8 | u16::from(p[1]))
+        };
+        let scale = |x: u16| {
+            if depth == 16 {
+                ((u32::from(x) * 255 + 32895) >> 16) as u8
+            } else {
+                x as u8
+            }
+        };
+        let c = if color == png::ColorType::Rgba {
+            [v(0), v(1), v(2)]
+        } else {
+            [v(0); 3]
+        };
+        // C copies the 16-bit values into the unsigned char `transp_col`
+        if has_alpha {
+            pic.transp_col = c.map(|x| x as u8);
+        }
+        bg16 = c;
+        (c.map(scale), PngBackground::File)
+    } else {
+        let b = background(ctx);
+        if has_alpha {
+            pic.transp_col = b;
+        }
+        bg16 = b.map(|v| u16::from(v) * 257);
+        (b, PngBackground::Screen)
+    };
+    let mut bitmap: Vec<u8> = Vec::with_capacity(w.saturating_mul(h).saturating_mul(3));
     pic.cmap = Vec::new();
     pic.num_transp = NO_TRANSPARENCY;
-    pic.transp_col = [0; 3];
+    pic.transp_cols = Vec::new();
+    if !has_alpha {
+        pic.transp_col = [0; 3];
+    }
+    let mut palette_overrun = false;
+    let at = |t: &[u8; 256], i: u8| t.get(usize::from(i)).copied().unwrap_or(i);
     match color {
         png::ColorType::Indexed => {
-            let pal = palette.ok_or_else(|| format!("Could not read color palette of png image {}.", pic.file))?;
+            pic.transp_col = [0; 3];
+            let pal = palette.ok_or_else(|| "libpng error: IDAT: Missing PLTE before IDAT".to_string())?;
             pic.cmap = pal.as_chunks::<3>().0.iter().take(256).copied().collect();
+            let n = pic.cmap.len();
             if ctx.grayonly {
                 let cmap: Vec<u8> = pic.cmap.iter().map(|&c| luminance(c)).collect();
                 for y in 0..h {
                     for x in 0..w {
-                        bitmap.push(cmap.get(sample(y, x) as usize).copied().unwrap_or(0));
+                        let i = usize::from(sample(y, x));
+                        palette_overrun |= i >= n;
+                        bitmap.push(cmap.get(i).copied().unwrap_or(0));
                     }
                 }
                 pic.cmap = (0..=255u8).map(|i| [i; 3]).collect();
@@ -639,12 +1084,17 @@ pub fn read_png(ctx: &Ctx, data: &[u8], pic: &mut Pic) -> Result<(), String> {
             } else {
                 for y in 0..h {
                     for x in 0..w {
-                        bitmap.push(sample(y, x) as u8);
+                        let i = sample(y, x);
+                        palette_overrun |= usize::from(i) >= n;
+                        bitmap.push(i);
                     }
                 }
-                pic.numcols = pic.cmap.len() as i32;
+                pic.numcols = n as i32;
             }
             if let Some(t) = &trns {
+                // `transp_cols[i] = trans_alpha[i]`: the alpha values, which
+                // genps then uses as the MaskColor
+                pic.transp_cols = t.clone();
                 pic.num_transp = t.len() as i32;
             }
         }
@@ -652,28 +1102,39 @@ pub fn read_png(ctx: &Ctx, data: &[u8], pic: &mut Pic) -> Result<(), String> {
             let n = 1usize << gray_depth;
             pic.cmap = (0..n).map(|i| [(i * 255 / (n - 1)) as u8; 3]).collect();
             pic.numcols = n as i32;
+            let shift = 8 - gray_depth;
             for y in 0..h {
                 for x in 0..w {
                     let g = sample(y, x * channels);
-                    if color == png::ColorType::GrayscaleAlpha {
-                        let a = sample(y, x * channels + 1) * if depth == 16 { 1 } else { 255 / ((1 << depth) - 1) };
-                        let g8 = g * 255 / (n as u32 - 1);
-                        let m = compose_gamma(g8, a, bg[0]);
-                        bitmap.push((m * (n as u32 - 1) / 255) as u8);
+                    let v = if let (Some(g16), true) = (&g16, depth == 16) {
+                        if has_alpha {
+                            g16.compose(raw16(y, x * channels), raw16(y, x * channels + 1), bg16[0], mode)
+                        } else {
+                            g16.correct(raw16(y, x))
+                        }
+                    } else if has_alpha {
+                        let a = sample(y, x * channels + 1);
+                        let g8 = (u32::from(g) * 255 / (n as u32 - 1)) as u8;
+                        let m = gamma.compose(g8, a, bg[0], mode);
+                        (u32::from(m) * (n as u32 - 1) / 255) as u8
+                    } else if depth < 8 {
+                        // libpng gammas the value replicated to 8 bits
+                        let rep = (u32::from(g) * 255 / (n as u32 - 1)) as u8;
+                        at(&gamma.table, rep) >> shift
                     } else {
-                        bitmap.push(g as u8);
-                    }
+                        at(&gamma.table, g)
+                    };
+                    bitmap.push(v);
                 }
             }
-            if color == png::ColorType::GrayscaleAlpha {
+            if has_alpha {
                 pic.num_transp = TRANSP_COLOR;
-                pic.transp_col = bg;
             } else if let Some(t) = &trns {
-                let g = t.get(..2).map_or(0, |b| u32::from(b[0]) << 8 | u32::from(b[1]));
+                // the `png` crate keeps one byte for depths below 16
                 let g = if depth == 16 {
-                    g >> 8
+                    t.get(..2).map_or(0, |b| u32::from(b[0]) << 8 | u32::from(b[1])) >> 8
                 } else {
-                    g * (255 / ((1 << depth) - 1))
+                    u32::from(t.first().copied().unwrap_or(0)) * (255 / ((1 << depth) - 1))
                 };
                 pic.transp_col = [g as u8; 3];
                 pic.num_transp = TRANSP_COLOR;
@@ -688,32 +1149,57 @@ pub fn read_png(ctx: &Ctx, data: &[u8], pic: &mut Pic) -> Result<(), String> {
             for y in 0..h {
                 for x in 0..w {
                     let mut c = [0, 1, 2].map(|k| sample(y, x * channels + k));
-                    if color == png::ColorType::Rgba {
+                    if let Some(g16) = &g16 {
+                        let r = [0, 1, 2].map(|k| raw16(y, x * channels + k));
+                        c = if has_alpha {
+                            let a = raw16(y, x * channels + 3);
+                            [0, 1, 2].map(|k| g16.compose(r[k], a, bg16[k], mode))
+                        } else {
+                            r.map(|v| g16.correct(v))
+                        };
+                    } else if has_alpha {
                         let a = sample(y, x * channels + 3);
                         for (k, v) in c.iter_mut().enumerate() {
-                            *v = compose_gamma(*v, a, bg[k]);
+                            *v = gamma.compose(*v, a, bg[k], mode);
                         }
+                    } else {
+                        c = c.map(|v| at(&gamma.table, v));
                     }
                     if ctx.grayonly {
-                        bitmap.push(luminance(c.map(|v| v as u8)));
+                        bitmap.push(luminance(c));
                     } else {
-                        bitmap.extend(c.map(|v| v as u8));
+                        bitmap.extend(c);
                     }
                 }
             }
-            if color == png::ColorType::Rgba {
+            if has_alpha {
                 pic.num_transp = TRANSP_COLOR;
-                pic.transp_col = bg;
             } else if let Some(t) = &trns {
-                let v = |i: usize| {
-                    t.get(2 * i..2 * i + 2)
-                        .map_or(0, |b| u32::from(b[0]) << 8 | u32::from(b[1]))
+                // C reads the colour from `trans_color` (for 8 bit images
+                // the low byte; for 16 bit ones the rounded high byte)
+                let v = |i: usize| -> u32 {
+                    if depth == 16 {
+                        t.get(2 * i..2 * i + 2)
+                            .map_or(0, |b| u32::from(b[0]) << 8 | u32::from(b[1]))
+                    } else {
+                        u32::from(t.get(i).copied().unwrap_or(0))
+                    }
                 };
-                pic.transp_col = [0, 1, 2].map(|i| if depth == 16 { (v(i) >> 8) as u8 } else { v(i) as u8 });
+                pic.transp_col = [0, 1, 2].map(|i| {
+                    if depth == 16 {
+                        ((v(i) + 0x80) >> 8) as u8
+                    } else {
+                        v(i) as u8
+                    }
+                });
                 pic.num_transp = TRANSP_COLOR;
             }
         }
     }
+    if palette_overrun {
+        warn.push("libpng warning: IDAT: Read palette index exceeding num_palette");
+    }
+    msgs.extend(warn.into_iter().map(String::from));
     pic.bitmap = bitmap;
     pic.subtype = P_PNG;
     set_size(pic, w as u32, h as u32);
@@ -908,7 +1394,6 @@ pub fn read_pdf(data: &[u8], pic: &mut Pic) -> Result<(i32, i32), String> {
 
 /// An X bitmap: `height` rows of `(width + 7) / 8` bytes, leftmost pixel
 /// in the most significant bit (C reverses the bits of the file's bytes).
-/// Unlike C, X10 bitmaps (16-bit values) keep their high bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct XBitmap {
     pub width: u32,
@@ -916,78 +1401,152 @@ pub struct XBitmap {
     pub data: Vec<u8>,
 }
 
-/// `ReadFromBitmapFile`: reads an X11 (or X10) bitmap file.
-pub fn read_bitmap_file(data: &[u8]) -> Option<XBitmap> {
-    let text = String::from_utf8_lossy(data);
-    let (mut w, mut h) = (0u32, 0u32);
-    let mut body: Option<(usize, bool)> = None;
-    let mut offset = 0usize;
-    for line in text.split_inclusive('\n') {
-        let start = offset;
-        offset += line.len();
-        let mut tok = line.split_whitespace();
-        if tok.next() == Some("#define") {
-            let (Some(name), Some(value)) = (tok.next(), tok.next()) else {
-                continue;
-            };
-            let kind = name.rsplit('_').next().unwrap_or(name);
-            let Ok(v) = value.parse::<u32>() else {
-                continue;
-            };
-            match kind {
-                "width" => w = v,
-                "height" => h = v,
-                _ => {}
-            }
-            continue;
-        }
-        let Some(brace) = line.find('{') else {
-            continue;
+/// Skips ASCII white space, as `sscanf` does for a blank in its format.
+fn skip_blanks(s: &[u8]) -> &[u8] {
+    let n = s.iter().take_while(|b| b.is_ascii_whitespace()).count();
+    s.get(n..).unwrap_or(&[])
+}
+
+/// `%s`: skips white space, then takes the non-blank characters.
+fn scan_word(s: &[u8]) -> Option<(&[u8], &[u8])> {
+    let s = skip_blanks(s);
+    let n = s.iter().take_while(|b| !b.is_ascii_whitespace()).count();
+    (n > 0).then(|| (s.get(..n).unwrap_or(&[]), s.get(n..).unwrap_or(&[])))
+}
+
+/// `%d`: white space, an optional sign, decimal digits.
+fn scan_decimal(s: &[u8]) -> Option<i64> {
+    let s = skip_blanks(s);
+    let (neg, s) = match s.split_first() {
+        Some((b'-', r)) => (true, r),
+        Some((b'+', r)) => (false, r),
+        _ => (false, s),
+    };
+    let digits = s.iter().take_while(|b| b.is_ascii_digit()).count();
+    if digits == 0 {
+        return None;
+    }
+    let v = s
+        .iter()
+        .take(digits)
+        .fold(0i64, |v, &d| v.wrapping_mul(10).wrapping_add(i64::from(d - b'0')));
+    Some(if neg { v.wrapping_neg() } else { v })
+}
+
+/// `NextInt` (readxbm.c): the next hex value of the data, its low byte
+/// with the bits reversed. Characters that are neither hex digits nor
+/// delimiters (`x`, `;`, CR) are skipped; digits of a decimal number are
+/// read as hex. At the end of the file C's `value` is -1, which comes out
+/// as 0xff, so the missing data are ones, not an error.
+fn next_int(data: &[u8], pos: &mut usize) -> u8 {
+    let mut value: i32 = 0;
+    let mut gotone = false;
+    loop {
+        let Some(&ch) = data.get(*pos) else {
+            value = -1;
+            break;
         };
-        let decl = line.get(..brace).unwrap_or("");
-        if decl.contains("static") && decl.contains("bits[]") {
-            body = Some((start + brace + 1, decl.contains("short")));
+        *pos += 1;
+        if let Some(d) = char::from(ch).to_digit(16) {
+            value = value.wrapping_shl(4).wrapping_add(d as i32);
+            gotone = true;
+        } else if matches!(ch, b' ' | b',' | b'}' | b'\n' | b'\t') && gotone {
             break;
         }
     }
-    let (at, version10) = body?;
-    if w == 0 || h == 0 || check_size(u64::from(w), u64::from(h)).is_err() {
-        return None;
-    }
-    let padding = usize::from(version10 && w % 16 != 0 && w % 16 < 9);
-    let bytes_per_line = (w as usize).div_ceil(8) + padding;
-    let size = bytes_per_line * h as usize;
-    let mut values = text
-        .get(at..)?
-        .split([' ', ',', '}', '\n', '\t', '\r', ';'])
-        .filter(|t| !t.is_empty())
-        .map(|t| {
-            let digits = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")).unwrap_or(t);
-            u16::from_str_radix(digits, 16).ok()
-        });
-    let mut out = Vec::with_capacity(size);
-    if version10 {
-        // C's loop: two bytes per value; the padding byte at the end of a
-        // line is dropped, so rows are (width + 7) / 8 bytes either way.
-        let mut bytes = 0;
-        while bytes < size {
-            let v = values.next()??;
-            out.push((v as u8).reverse_bits());
-            if padding == 0 || (bytes + 2) % bytes_per_line != 0 {
-                out.push(((v >> 8) as u8).reverse_bits());
+    (value as u8).reverse_bits()
+}
+
+/// `ReadFromBitmapFile`: reads an X11 (or X10) bitmap file the way C does
+/// (readxbm.c, from X11's `XReadBitmapFromFile`): lines of at most 253
+/// characters, `#define NAME_width N` and `NAME_height N`, then the data
+/// after a `static [unsigned] char`/`short NAME_bits[] = {` line. X10
+/// bitmaps (16-bit values) lose their high bytes in C and here.
+pub fn read_bitmap_file(data: &[u8]) -> Option<XBitmap> {
+    const MAX_SIZE: usize = 255;
+    let after_underscore = |name: &[u8]| -> Vec<u8> {
+        match name.iter().rposition(|&b| b == b'_') {
+            Some(i) => name.get(i + 1..).unwrap_or(&[]).to_vec(),
+            None => name.to_vec(),
+        }
+    };
+    let (mut ww, mut hh) = (0u32, 0u32);
+    let mut bitmap: Option<Vec<u8>> = None;
+    let mut pos = 0usize;
+    while pos < data.len() {
+        // fgets(line, MAX_SIZE, file)
+        let rest = data.get(pos..).unwrap_or(&[]);
+        let n = rest
+            .iter()
+            .position(|&b| b == b'\n')
+            .map_or(rest.len(), |i| i + 1)
+            .min(MAX_SIZE - 1);
+        let line = rest.get(..n).unwrap_or(&[]);
+        pos += n;
+        if line.len() == MAX_SIZE - 1 {
+            return None;
+        }
+        if let Some(r) = line.strip_prefix(b"#define") {
+            if let Some((name, r)) = scan_word(r) {
+                if let Some(value) = scan_decimal(r) {
+                    match after_underscore(name).as_slice() {
+                        b"width" => ww = value as u32,
+                        b"height" => hh = value as u32,
+                        _ => {}
+                    }
+                    continue;
+                }
             }
-            bytes += 2;
         }
-    } else {
-        while out.len() < size {
-            let v = values.next()??;
-            out.push((v as u8).reverse_bits());
+        // `static short %s`, `static unsigned char %s`, `static char %s`
+        let version10 = if let Some(r) = line.strip_prefix(b"static").map(skip_blanks) {
+            if let Some(r) = r.strip_prefix(b"short") {
+                scan_word(r).map(|(w, _)| (w, true))
+            } else if let Some(r) = r.strip_prefix(b"unsigned").map(skip_blanks) {
+                r.strip_prefix(b"char").and_then(scan_word).map(|(w, _)| (w, false))
+            } else {
+                r.strip_prefix(b"char").and_then(scan_word).map(|(w, _)| (w, false))
+            }
+        } else {
+            None
+        };
+        let Some((name, version10)) = version10 else {
+            continue;
+        };
+        if after_underscore(name).as_slice() != b"bits[]" {
+            continue;
         }
+        if ww == 0 || hh == 0 {
+            return None;
+        }
+        check_size(u64::from(ww), u64::from(hh)).ok()?;
+        let padding = usize::from(ww % 16 != 0 && ww % 16 < 9 && version10);
+        let bytes_per_line = (ww as usize).div_ceil(8) + padding;
+        let size = bytes_per_line * hh as usize;
+        let mut out = Vec::with_capacity(size);
+        if version10 {
+            // two bytes per value; the second is `value >> 8` of a byte,
+            // so 0, and the padding byte at the end of a line is dropped
+            let mut bytes = 0;
+            while bytes < size {
+                out.push(next_int(data, &mut pos));
+                if padding == 0 || (bytes + 2) % bytes_per_line != 0 {
+                    out.push(0);
+                }
+                bytes += 2;
+            }
+            out.truncate(size);
+        } else {
+            for _ in 0..size {
+                out.push(next_int(data, &mut pos));
+            }
+        }
+        bitmap = Some(out);
     }
     Some(XBitmap {
-        width: w,
-        height: h,
-        data: out,
+        width: ww,
+        height: hh,
+        data: bitmap?,
     })
 }
 
@@ -1042,7 +1601,7 @@ fn c_strings(text: &str, max: usize) -> Vec<String> {
 }
 
 /// The colour of an XPM colour definition (after the pixel characters):
-/// the `c` key, else `g`, `g4`, `m`; `None` is transparent.
+/// the `c` key, else `g`, `g4`, `m`; `None` is black.
 fn xpm_color(def: &str) -> Option<[u8; 4]> {
     let mut values: Vec<(&str, String)> = Vec::new();
     for t in def.split_whitespace() {
@@ -1061,15 +1620,16 @@ fn xpm_color(def: &str) -> Option<[u8; 4]> {
             .find(|(key, v)| key == k && !v.is_empty())
             .map(|(_, v)| v.as_str())
     })?;
+    // xpmtoppm has no transparency: None comes out black
     if value.eq_ignore_ascii_case("none") {
-        return Some([0, 0, 0, 0]);
+        return Some([0, 0, 0, 255]);
     }
     let c = figbase::color::x_color(value)?;
     Some([c.r, c.g, c.b, 255])
 }
 
 /// Reads an XPM (version 3) image (C converts it with netpbm or
-/// ImageMagick). Unknown colour names are black.
+/// ImageMagick). Unknown colour names are errors, as in `xpmtoppm`.
 pub fn read_xpm(ctx: &Ctx, data: &[u8], pic: &mut Pic) -> Result<(), String> {
     let text = String::from_utf8_lossy(data);
     let header = c_strings(&text, 1).into_iter().next().ok_or("not an XPM file")?;
@@ -1094,7 +1654,8 @@ pub fn read_xpm(ctx: &Ctx, data: &[u8], pic: &mut Pic) -> Result<(), String> {
     for def in strings.get(1..1 + ncolors).unwrap_or(&[]) {
         let key = def.as_bytes().get(..cpp).ok_or("bad XPM colour")?;
         let rest = def.get(cpp..).unwrap_or("");
-        colors.insert(key, xpm_color(rest).unwrap_or([0, 0, 0, 255]));
+        // xpmtoppm fails on a colour it cannot interpret
+        colors.insert(key, xpm_color(rest).ok_or("bad XPM colour")?);
     }
     let mut rgba = Vec::with_capacity(w * h * 4);
     for row in strings.get(1 + ncolors..1 + ncolors + h).unwrap_or(&[]) {
@@ -1105,121 +1666,166 @@ pub fn read_xpm(ctx: &Ctx, data: &[u8], pic: &mut Pic) -> Result<(), String> {
             rgba.extend_from_slice(c);
         }
     }
-    fill_from_rgba(ctx, pic, w as u32, h as u32, &rgba)?;
-    pic.subtype = P_XPM;
+    // `xpmtoppm | ppmtopcx`: no transparency, and `_read_pcx` sets the subtype
+    let rgb: Vec<[u8; 3]> = rgba.as_chunks::<4>().0.iter().map(|p| [p[0], p[1], p[2]]).collect();
+    fill_indexed(ctx, pic, w as u32, h as u32, rgb, None);
+    pic.subtype = P_PCX;
     Ok(())
 }
 
-/// `_read_pcx`: reads a PCX image, 1–4 bit planar, 8 bit indexed or 24
-/// bit RGB. Unlike C, the scanline length is the header's (C uses the
-/// width for 8 and 24 bit images, misreading padded lines).
+/// The decoder state of `_read_pcx`: C's `dispbyte` arguments.
+struct PcxState {
+    x: usize,
+    y: usize,
+    plane: usize,
+    pmask: u32,
+}
+
+/// `dispbyte` (readpcx.c): stores byte `c` of the run-length decoded data.
+/// C writes into one array of `w * h` pixels for all planes, and its
+/// indices run past the line (and the array) for odd line lengths and
+/// long runs; writes beyond `buf` are dropped here.
+fn pcx_dispbyte(buf: &mut [u8], st: &mut PcxState, c: u8, w: usize, h: usize, real_bpp: u32, byteline: usize) {
+    match real_bpp {
+        1..=4 => {
+            if st.y >= h {
+                return;
+            }
+            // the pointer runs on linearly even where x wraps to the next plane
+            let start = st.y * w + st.x;
+            let line = byteline * 8;
+            for f in 0..8 {
+                if let Some(b) = buf.get_mut(start + f) {
+                    if c & (0x80 >> f) != 0 {
+                        *b |= st.pmask as u8;
+                    }
+                }
+                st.x += 1;
+                if st.x >= line {
+                    if real_bpp == 1 {
+                        st.x = 0;
+                        st.y += 1;
+                        return;
+                    }
+                    st.x = 0;
+                    st.plane += 1;
+                    st.pmask <<= 1;
+                    if st.plane == real_bpp as usize {
+                        st.y += 1;
+                        return;
+                    }
+                }
+                if st.y >= h {
+                    return;
+                }
+            }
+        }
+        8 => {
+            if let Some(b) = buf.get_mut(st.y * w + st.x) {
+                *b = c;
+            }
+            st.x += 1;
+            if st.x >= w {
+                st.x = 0;
+                st.y += 1;
+            }
+        }
+        _ => {
+            if let Some(b) = buf.get_mut((st.y * w + st.x) * 3 + st.plane) {
+                *b = c;
+            }
+            st.x += 1;
+            if st.x >= w {
+                st.x = 0;
+                st.plane += 1;
+                if st.plane == 3 {
+                    st.y += 1;
+                }
+            }
+        }
+    }
+}
+
+/// `_read_pcx` (readpcx.c, public domain, from zgv): reads a PCX image,
+/// 1 bit per pixel in 1 to 4 planes, 8 bit indexed or 24 bit RGB; anything
+/// else is "unsupported". Ported literally: the scanline length for 8 and
+/// 24 bit images is the width (so a padded line is misread), and a short
+/// file reads as `0xff` bytes (`fgetc` returns -1).
 pub fn read_pcx(ctx: &Ctx, data: &[u8], pic: &mut Pic) -> Result<(), String> {
-    let hdr = data.get(..128).ok_or("PCX file too short")?;
+    let mut hdr = [0u8; 128];
+    let n = data.len().min(128);
+    if let (Some(d), Some(s)) = (hdr.get_mut(..n), data.get(..n)) {
+        d.copy_from_slice(s);
+    }
     let at = |i: usize| usize::from(hdr.get(i).copied().unwrap_or(0));
     let word = |i: usize| at(i) + 256 * at(i + 1);
     if at(0) != 10 || at(2) != 1 {
         return Err("not a PCX file".into());
     }
     let (bpp, nplanes) = (at(3), at(65));
-    let real_bpp = match (bpp, nplanes) {
-        (1, 1..=4) => nplanes,
-        (8, 1) => 8,
-        (8, 3) => 24,
+    let (real_bpp, bytepp) = match (bpp, nplanes) {
+        (1, 1..=4) => (nplanes as u32, 1),
+        (8, 1) => (8, 1),
+        (8, 3) => (24, 3),
         _ => return Err("unsupported PCX format".into()),
     };
-    let w = (word(8) as i64) - (word(4) as i64) + 1;
-    let h = (word(10) as i64) - (word(6) as i64) + 1;
+    let w = word(8) as i64 - word(4) as i64 + 1;
+    let h = word(10) as i64 - word(6) as i64 + 1;
     if w <= 0 || h <= 0 {
         return Err("empty image".into());
     }
-    let (w, h) = (w as usize, h as usize);
     check_size(w as u64, h as u64)?;
-    let min_line = if bpp == 1 { w.div_ceil(8) } else { w };
-    let byteline = word(66).max(min_line);
-    let line = byteline * nplanes;
-
-    // Uncompress the run-length encoded scanlines.
-    let total = line * h;
-    let mut raw = Vec::with_capacity(total);
+    let (w, h) = (w as usize, h as usize);
+    let byteline = word(66);
+    // dispbyte() seems to reach beyond a line: C allocates a bit more
+    let mut bitmap = vec![0u8; w.max(8) * (h + 2) * bytepp];
     let mut pos = 128usize;
-    while raw.len() < total {
-        let Some(&b) = data.get(pos) else {
-            break; // truncated: the rest stays 0
-        };
+    let mut next = || -> u8 {
+        let b = data.get(pos).copied().unwrap_or(0xff);
         pos += 1;
-        if b >= 192 {
-            let v = data.get(pos).copied().unwrap_or(0);
-            pos += 1;
-            let n = usize::from(b & 63).min(total - raw.len());
-            raw.extend(std::iter::repeat_n(v, n));
-        } else {
-            raw.push(b);
+        b
+    };
+    for yy in 0..h {
+        let mut st = PcxState {
+            x: 0,
+            y: yy,
+            plane: 0,
+            pmask: 1,
+        };
+        while st.y == yy {
+            let b = next();
+            if b < 192 {
+                pcx_dispbyte(&mut bitmap, &mut st, b, w, h, real_bpp, byteline);
+            } else {
+                let c = next();
+                for _ in 0..(b & 63) {
+                    pcx_dispbyte(&mut bitmap, &mut st, c, w, h, real_bpp, byteline);
+                }
+            }
         }
     }
-    raw.resize(total, 0);
-
     let gray = |c: [u8; 3]| if ctx.grayonly { [luminance(c); 3] } else { c };
-    let mut bitmap = Vec::with_capacity(w * h * if real_bpp == 24 { 3 } else { 1 });
-    for row in raw.chunks_exact(line) {
-        for x in 0..w {
-            match real_bpp {
-                24 => {
-                    for p in 0..3 {
-                        bitmap.push(row.get(p * byteline + x).copied().unwrap_or(0));
-                    }
-                }
-                8 => bitmap.push(row.get(x).copied().unwrap_or(0)),
-                _ => {
-                    let mut v = 0u8;
-                    for p in 0..nplanes {
-                        let byte = row.get(p * byteline + x / 8).copied().unwrap_or(0);
-                        if byte & (0x80 >> (x % 8)) != 0 {
-                            v |= 1 << p;
-                        }
-                    }
-                    bitmap.push(v);
-                }
-            }
-        }
-    }
     match real_bpp {
-        24 => {
-            if ctx.grayonly {
-                for px in bitmap.as_chunks_mut::<3>().0 {
-                    let l = luminance([px[0], px[1], px[2]]);
-                    px.fill(l);
-                }
-            }
-            pic.cmap = Vec::new();
-            pic.numcols = RGB_NUMCOLS;
-        }
-        8 => {
-            // The palette follows the image data after a 0x0c byte; it is
-            // also the last 769 bytes of the file.
-            let tail = data
-                .len()
-                .checked_sub(769)
-                .and_then(|i| data.get(i..))
-                .filter(|t| t.first() == Some(&0x0c));
-            let pal = tail
-                .or_else(|| data.get(pos..))
-                .map_or(&[][..], |p| p.get(1..).unwrap_or(&[]));
-            pic.cmap = (0..256)
-                .map(|i| {
-                    let c = |k: usize| pal.get(i * 3 + k).copied().unwrap_or(0);
-                    gray([c(0), c(1), c(2)])
-                })
-                .collect();
-            pic.numcols = 256;
-        }
-        _ => {
+        1..=4 => {
+            // the palette is in the header
             let n = 1usize << real_bpp;
             pic.cmap = (0..n)
                 .map(|i| gray([at(16 + i * 3) as u8, at(17 + i * 3) as u8, at(18 + i * 3) as u8]))
                 .collect();
             pic.numcols = n as i32;
         }
+        8 => {
+            // after a splitter byte, 256 colours follow the image data
+            let _splitter = next();
+            pic.cmap = (0..256).map(|_| gray([next(), next(), next()])).collect();
+            pic.numcols = 256;
+        }
+        _ => {
+            pic.cmap = Vec::new();
+            pic.numcols = RGB_NUMCOLS;
+        }
     }
+    bitmap.truncate(w * h * bytepp);
     pic.bitmap = bitmap;
     pic.num_transp = NO_TRANSPARENCY;
     pic.subtype = P_PCX;
@@ -1253,10 +1859,10 @@ pub enum LoadedPicture {
 
 /// Reads picture `name` the way fig2dev does (`readpics.c`: the file, or
 /// it with `.gz`, `.Z`, `.z` added or removed, uncompressed; GIF, JPEG,
-/// PNG, TIFF, PPM/PNM, PCX, XBM, XPM, EPS and PDF). Relative names are
+/// PNG, TIFF, PPM, PCX, XBM, XPM, EPS and PDF). Relative names are
 /// taken relative to `ctx.dir`. Errors carry genps.c's messages ("No such
 /// picture file: …", "…: Unknown image format").
-pub fn load_picture(ctx: &Ctx, name: &str) -> Result<LoadedPicture, String> {
+pub fn load_picture(ctx: &mut Ctx, name: &str) -> Result<LoadedPicture, String> {
     if file_on_disk(&pic_path(ctx, name)).is_none() {
         return Err(format!("No such picture file: {name}"));
     }
@@ -1297,7 +1903,7 @@ pub fn pic_to_raster(pic: &Pic) -> Result<RasterImage, String> {
     };
     let transparent = (pic.num_transp == TRANSP_COLOR).then_some(pic.transp_col);
     let mut rgba = Vec::with_capacity(n * 4);
-    let mut push = |c: [u8; 3]| {
+    let push = |rgba: &mut Vec<u8>, c: [u8; 3]| {
         let a = if Some(c) == transparent { 0 } else { 255 };
         rgba.extend_from_slice(&[c[0], c[1], c[2], a]);
     };
@@ -1313,13 +1919,26 @@ pub fn pic_to_raster(pic: &Pic) -> Result<RasterImage, String> {
                 }
             }
         }
-    } else if pic.numcols == RGB_NUMCOLS {
+    } else if pic.numcols > 256 {
         for px in pic.bitmap.as_chunks::<3>().0.iter().take(n) {
-            push(*px);
+            push(&mut rgba, *px);
         }
     } else {
+        // genps writes the entries of `transp_cols` as the image's
+        // /MaskColor: one index is masked, two are a range, other counts
+        // make the PostScript fail and mask nothing here
+        let indexed_mask = |i: u8| match *pic.transp_cols.as_slice() {
+            [v] if pic.num_transp == 1 => i == v,
+            [lo, hi] if pic.num_transp == 2 => (lo..=hi).contains(&i),
+            _ => false,
+        };
         for &i in pic.bitmap.iter().take(n) {
-            push(pic.cmap.get(usize::from(i)).copied().unwrap_or([0, 0, 0]));
+            let c = pic.cmap.get(usize::from(i)).copied().unwrap_or([0, 0, 0]);
+            if indexed_mask(i) {
+                rgba.extend_from_slice(&[c[0], c[1], c[2], 0]);
+            } else {
+                push(&mut rgba, c);
+            }
         }
     }
     if rgba.len() != n * 4 {
@@ -1341,8 +1960,18 @@ mod tests {
         assert_eq!(pic_type(b"GIF89a"), Some(PicType::Gif));
         assert_eq!(pic_type(b"%!PS-Adobe-3.0 EPSF"), Some(PicType::Eps));
         assert_eq!(pic_type(b"%PDF-1.4"), Some(PicType::Pdf));
-        assert_eq!(pic_type(b"P5\n1 1\n255\n\0"), Some(PicType::Ppm));
-        assert_eq!(pic_type(b"\xff\xd8\xff\xdb"), Some(PicType::Jpeg));
+        assert_eq!(pic_type(b"P6\n1 1\n255\n\0\0\0"), Some(PicType::Ppm));
+        assert_eq!(pic_type(b"P3 1 1 255 0 0 0"), Some(PicType::Ppm));
+        // genps.c's table: no P1, P2, P4, P5, P7, and no JPEG without JFIF/Exif
+        for no in [
+            &b"P1\n1 1\n0\n"[..],
+            b"P5\n1 1\n255\n\0",
+            b"P4\n8 1\n\xff",
+            b"\xff\xd8\xff\xdb",
+        ] {
+            assert_eq!(pic_type(no), None);
+        }
+        assert_eq!(pic_type(b"\xff\xd8\xff\xe1"), Some(PicType::Jpeg));
         assert_eq!(pic_type(b"hello"), None);
         assert_eq!(pic_type(b""), None);
     }
@@ -1391,10 +2020,16 @@ mod tests {
         read_xpm(&Ctx::default(), src, &mut pic).unwrap();
         assert_eq!(pic.bit_size, Point::new(2, 2));
         assert_eq!(pic.numcols, 2);
-        assert_eq!(pic.cmap, vec![[255, 0, 0], [255, 255, 255]]);
+        // xpmtoppm | ppmtopcx: `None` is black, there is no transparency, and
+        // `_read_pcx` sets the subtype
+        assert_eq!(pic.cmap, vec![[255, 0, 0], [0, 0, 0]]);
         assert_eq!(pic.bitmap, vec![0, 1, 1, 0]);
-        assert_eq!(pic.num_transp, TRANSP_COLOR);
+        assert_eq!(pic.num_transp, NO_TRANSPARENCY);
+        assert_eq!(pic.subtype, P_PCX);
         assert!(read_xpm(&Ctx::default(), b"/* XPM */ \"2 2 1 1\" \"a c red\" \"aa\"", &mut pic).is_err());
+        // a colour xpmtoppm cannot interpret
+        let bad = b"/* XPM */ \"1 1 1 1\", \"a c nosuchcolour\", \"a\"";
+        assert!(read_xpm(&Ctx::default(), bad, &mut pic).is_err());
         assert!(read_xpm(&Ctx::default(), b"/* XPM */ \"9999999 9999999 1 1\"", &mut pic).is_err());
     }
 
@@ -1413,6 +2048,396 @@ mod tests {
         ctx.grayonly = true;
         fill_from_rgba(&ctx, &mut pic, w, h, &rgba).unwrap();
         assert!(pic.numcols <= 256);
+    }
+
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc = 0xffff_ffffu32;
+        for &b in data {
+            crc ^= u32::from(b);
+            for _ in 0..8 {
+                crc = if crc & 1 != 0 {
+                    (crc >> 1) ^ 0xedb8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+
+    fn adler32(data: &[u8]) -> u32 {
+        let (mut a, mut b) = (1u32, 0u32);
+        for &d in data {
+            a = (a + u32::from(d)) % 65521;
+            b = (b + a) % 65521;
+        }
+        b << 16 | a
+    }
+
+    fn chunk(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+        let mut out = (body.len() as u32).to_be_bytes().to_vec();
+        let mut crc_data = kind.to_vec();
+        crc_data.extend_from_slice(body);
+        out.extend_from_slice(&crc_data);
+        out.extend_from_slice(&crc32(&crc_data).to_be_bytes());
+        out
+    }
+
+    /// A PNG of `w` x `h` with `rows` (without filter bytes) and the given
+    /// extra chunks before the data.
+    fn png(w: u32, h: u32, color: u8, depth: u8, interlace: u8, rows: &[&[u8]], extra: &[Vec<u8>]) -> Vec<u8> {
+        let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+        let mut ihdr = w.to_be_bytes().to_vec();
+        ihdr.extend_from_slice(&h.to_be_bytes());
+        ihdr.extend_from_slice(&[depth, color, 0, 0, interlace]);
+        out.extend(chunk(b"IHDR", &ihdr));
+        for c in extra {
+            out.extend_from_slice(c);
+        }
+        let raw: Vec<u8> = rows
+            .iter()
+            .flat_map(|r| std::iter::once(0u8).chain(r.iter().copied()))
+            .collect();
+        // stored deflate block
+        let mut z = vec![0x78, 0x01, 0x01];
+        z.extend_from_slice(&(raw.len() as u16).to_le_bytes());
+        z.extend_from_slice(&(!(raw.len() as u16)).to_le_bytes());
+        z.extend_from_slice(&raw);
+        z.extend_from_slice(&adler32(&raw).to_be_bytes());
+        out.extend(chunk(b"IDAT", &z));
+        out.extend(chunk(b"IEND", &[]));
+        out
+    }
+
+    fn read_bytes(ctx: &mut Ctx, data: Vec<u8>) -> (Result<(i32, i32), String>, Pic) {
+        let stream = PicStream {
+            name: "t".into(),
+            path: PathBuf::new(),
+            compression: Compression::None,
+            data,
+        };
+        let mut pic = Pic {
+            file: "t".into(),
+            ..Pic::default()
+        };
+        (read_pic(ctx, &stream, &mut pic), pic)
+    }
+
+    fn rgb_of(pic: &Pic, x: usize) -> [u8; 3] {
+        let b = |i: usize| pic.bitmap.get(i).copied().unwrap_or(0);
+        [b(3 * x), b(3 * x + 1), b(3 * x + 2)]
+    }
+
+    #[test]
+    fn png_alpha_composites_as_libpng_does() {
+        // two RGBA pixels: (30,40,20) at alpha 40 and (0,40,10) at alpha 0
+        let rows: [&[u8]; 1] = [&[30, 40, 20, 40, 0, 40, 10, 0]];
+        let mut ctx = Ctx::default();
+        // white background, the gamma of a file without gAMA (the values are
+        // what fig2dev 3.2.9a with libpng 1.6 writes)
+        let (r, pic) = read_bytes(&mut ctx, png(2, 1, 6, 8, 0, &rows, &[]));
+        assert!(r.is_ok());
+        assert_eq!(
+            (pic.numcols, pic.num_transp, pic.transp_col),
+            (RGB_NUMCOLS, TRANSP_COLOR, [255; 3])
+        );
+        assert_eq!(rgb_of(&pic, 0), [236, 236, 236]);
+        assert_eq!(rgb_of(&pic, 1), [255, 255, 255]);
+        // gAMA 1.0 changes the arithmetic
+        let gama = chunk(b"gAMA", &100_000u32.to_be_bytes());
+        let (_, pic) = read_bytes(&mut ctx, png(2, 1, 6, 8, 0, &rows, &[gama]));
+        assert_eq!(rgb_of(&pic, 0), [238, 239, 237]);
+        // bKGD (16-bit values, here 200, 50, 60) replaces the background and
+        // becomes the transparent colour
+        let bkgd = chunk(b"bKGD", &[0, 200, 0, 50, 0, 60]);
+        let (_, pic) = read_bytes(&mut ctx, png(2, 1, 6, 8, 0, &rows, &[bkgd]));
+        assert_eq!(pic.transp_col, [200, 50, 60]);
+        assert_eq!(rgb_of(&pic, 0), [185, 50, 56]);
+        assert_eq!(rgb_of(&pic, 1), [200, 50, 60]);
+        // -g colour
+        ctx.bgspec = true;
+        ctx.background.red = 0x1200;
+        ctx.background.green = 0x3400;
+        ctx.background.blue = 0x5600;
+        let (_, pic) = read_bytes(&mut ctx, png(2, 1, 6, 8, 0, &rows, &[]));
+        assert_eq!(pic.transp_col, [0x12, 0x34, 0x56]);
+        assert_eq!(rgb_of(&pic, 1), [0x12, 0x34, 0x56]);
+    }
+
+    #[test]
+    fn png_gamma_corrects_pixels_without_alpha() {
+        let rows: [&[u8]; 1] = [&[0, 0, 0, 30, 30, 30]];
+        let gama = chunk(b"gAMA", &100_000u32.to_be_bytes());
+        let (_, pic) = read_bytes(
+            &mut Ctx::default(),
+            png(2, 1, 2, 8, 0, &rows, std::slice::from_ref(&gama)),
+        );
+        assert_eq!(rgb_of(&pic, 1), [96; 3]);
+        // gAMA 0.45455 is the default: untouched
+        let same = chunk(b"gAMA", &45_455u32.to_be_bytes());
+        let (_, pic) = read_bytes(&mut Ctx::default(), png(2, 1, 2, 8, 0, &rows, &[same]));
+        assert_eq!(rgb_of(&pic, 1), [30; 3]);
+        // palette entries are not corrected, as the colour map is read before
+        // libpng sets up its transformations
+        let plte = chunk(b"PLTE", &[30, 30, 30]);
+        let (_, pic) = read_bytes(&mut Ctx::default(), png(1, 1, 3, 8, 0, &[&[0]], &[gama, plte]));
+        assert_eq!(pic.cmap, vec![[30, 30, 30]]);
+    }
+
+    #[test]
+    fn png_palette_transparency_is_kept_as_transp_cols() {
+        let plte = chunk(b"PLTE", &[255, 0, 0, 0, 255, 0, 0, 0, 255]);
+        let rows: [&[u8]; 1] = [&[2, 1, 0]];
+        let mut ctx = Ctx::default();
+        let (r, pic) = read_bytes(
+            &mut ctx,
+            png(3, 1, 3, 8, 0, &rows, &[plte.clone(), chunk(b"tRNS", &[0, 255])]),
+        );
+        assert!(r.is_ok());
+        // the colour map is in file order; C stores the alpha values
+        assert_eq!(pic.cmap, vec![[255, 0, 0], [0, 255, 0], [0, 0, 255]]);
+        assert_eq!(pic.bitmap, vec![2, 1, 0]);
+        assert_eq!((pic.num_transp, pic.transp_cols.clone()), (2, vec![0, 255]));
+        // more tRNS entries than palette entries: libpng warns and ignores
+        let (_, pic) = read_bytes(
+            &mut ctx,
+            png(3, 1, 3, 8, 0, &rows, &[plte, chunk(b"tRNS", &[0, 0, 0, 0])]),
+        );
+        assert_eq!(pic.num_transp, NO_TRANSPARENCY);
+        assert_eq!(ctx.messages, vec!["libpng warning: tRNS: invalid".to_string()]);
+        // one entry masks that index in the raster
+        let plte = chunk(b"PLTE", &[255, 0, 0, 0, 255, 0]);
+        let (_, pic) = read_bytes(
+            &mut Ctx::default(),
+            png(2, 1, 3, 8, 0, &[&[0, 1]], &[plte, chunk(b"tRNS", &[0])]),
+        );
+        let img = pic_to_raster(&pic).unwrap();
+        assert_eq!(img.rgba.chunks(4).map(|p| p[3]).collect::<Vec<_>>(), vec![0, 255]);
+    }
+
+    #[test]
+    fn png_messages_are_libpngs() {
+        let mut ctx = Ctx::default();
+        // palette index beyond the palette, interlace handling
+        let plte = chunk(b"PLTE", &[0, 0, 0]);
+        let (r, _) = read_bytes(&mut ctx, png(1, 1, 3, 8, 1, &[&[9]], &[plte]));
+        assert!(r.is_ok());
+        assert_eq!(
+            ctx.messages,
+            vec![
+                "libpng warning: Interlace handling should be turned on when using png_read_image".to_string(),
+                "libpng warning: IDAT: Read palette index exceeding num_palette".to_string()
+            ]
+        );
+        // a truncated file
+        let mut ctx = Ctx::default();
+        let mut data = png(2, 2, 2, 8, 0, &[&[0; 6], &[0; 6]], &[]);
+        data.truncate(data.len() - 20);
+        let (r, _) = read_bytes(&mut ctx, data);
+        assert_eq!(r.unwrap_err(), "libpng error: Read Error\nt: Bad PNG format");
+    }
+
+    #[test]
+    fn png_grayscale_transparent_colour() {
+        let (_, pic) = read_bytes(
+            &mut Ctx::default(),
+            png(2, 1, 0, 8, 0, &[&[1, 2]], &[chunk(b"tRNS", &[0, 1])]),
+        );
+        assert_eq!((pic.num_transp, pic.transp_col), (TRANSP_COLOR, [1; 3]));
+        assert_eq!(pic.numcols, 256);
+        // a 2-bit grey scale: colour map of four entries, ramp 0 85 170 255
+        let (_, pic) = read_bytes(&mut Ctx::default(), png(2, 1, 0, 2, 0, &[&[0b0111_0000]], &[]));
+        assert_eq!(pic.cmap, vec![[0; 3], [85; 3], [170; 3], [255; 3]]);
+        assert_eq!(pic.bitmap, vec![1, 3]);
+    }
+
+    /// A GIF with a 4-colour global map, 1 byte per code (LZW code size 8,
+    /// each pixel a literal).
+    fn gif(w: u16, h: u16, transparent: Option<u8>, pixels: &[u8]) -> Vec<u8> {
+        let mut g = b"GIF89a".to_vec();
+        g.extend_from_slice(&w.to_le_bytes());
+        g.extend_from_slice(&h.to_le_bytes());
+        g.extend_from_slice(&[0x81, 0, 0]);
+        g.extend_from_slice(&[255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255]);
+        if let Some(t) = transparent {
+            g.extend_from_slice(&[0x21, 0xf9, 4, 1, 0, 0, t, 0]);
+        }
+        g.push(0x2c);
+        g.extend_from_slice(&[0, 0, 0, 0]);
+        g.extend_from_slice(&w.to_le_bytes());
+        g.extend_from_slice(&h.to_le_bytes());
+        g.push(0);
+        g.push(8);
+        // codes of 9 bits: clear (256), the pixels, end (257), LSB first
+        let mut codes = vec![256u32];
+        codes.extend(pixels.iter().map(|&p| u32::from(p)));
+        codes.push(257);
+        let (mut bits, mut n, mut data) = (0u32, 0u32, Vec::new());
+        for c in codes {
+            bits |= c << n;
+            n += 9;
+            while n >= 8 {
+                data.push(bits as u8);
+                bits >>= 8;
+                n -= 8;
+            }
+        }
+        if n > 0 {
+            data.push(bits as u8);
+        }
+        for block in data.chunks(255) {
+            g.push(block.len() as u8);
+            g.extend_from_slice(block);
+        }
+        g.extend_from_slice(&[0, 0x3b]);
+        g
+    }
+
+    #[test]
+    fn gif_transparent_index_is_found_again_in_the_colour_map() {
+        let mut ctx = Ctx::default();
+        let (r, pic) = read_bytes(&mut ctx, gif(2, 2, Some(1), &[0, 1, 2, 1]));
+        assert!(r.is_ok());
+        assert_eq!(pic.subtype, P_PCX);
+        assert_eq!((pic.num_transp, pic.numcols), (1, 3));
+        // colours in order of first use: red, green, blue; green is transparent
+        assert_eq!(pic.cmap, vec![[255, 0, 0], [0, 255, 0], [0, 0, 255]]);
+        assert_eq!(pic.transp_cols, vec![1]);
+        let img = pic_to_raster(&pic).unwrap();
+        assert_eq!(
+            img.rgba.chunks(4).map(|p| p[3]).collect::<Vec<_>>(),
+            vec![255, 0, 255, 0]
+        );
+        // a transparent colour no pixel uses: no transparency
+        let (_, pic) = read_bytes(&mut ctx, gif(2, 1, Some(3), &[0, 1]));
+        assert_eq!(pic.num_transp, NO_TRANSPARENCY);
+        // no graphic control extension
+        let (_, pic) = read_bytes(&mut ctx, gif(2, 1, None, &[0, 1]));
+        assert_eq!((pic.num_transp, pic.transp_cols.len()), (NO_TRANSPARENCY, 0));
+        // truncated
+        let mut g = gif(2, 2, None, &[0, 1, 2, 1]);
+        g.truncate(30);
+        assert_eq!(read_bytes(&mut ctx, g).0.unwrap_err(), "t: Bad GIF format");
+    }
+
+    #[test]
+    fn xbm_reads_like_readxbm_c() {
+        // the end of the data reads as ones (C's NextInt returns 0xff for EOF)
+        let b =
+            read_bitmap_file(b"#define a_width 16\n#define a_height 2\nstatic char a_bits[] = {\n 0x01 };\n").unwrap();
+        assert_eq!(b.data, vec![0x80, 0xff, 0xff, 0xff]);
+        // X10: only the low byte of each value is kept; widths of 1 to 8 pad
+        let b = read_bitmap_file(
+            b"#define a_width 12\n#define a_height 1\nstatic short a_bits[] = {\n 0x0f0f, 0x00ff };\n",
+        )
+        .unwrap();
+        assert_eq!(b.data, vec![0xf0, 0x00]);
+        // decimal numbers are read as hex, other characters skipped
+        let b = read_bitmap_file(b"#define a_width 8\n#define a_height 2\nstatic char a_bits[] = {\r\n 129, 0176};\n")
+            .unwrap();
+        assert_eq!(b.data, vec![0x94, 0x6e]);
+        // the name must end in `bits[]`, and the size comes first
+        assert!(read_bitmap_file(b"#define a_width 8\n#define a_height 1\nstatic char a_data[] = { 1 };\n").is_none());
+        assert!(read_bitmap_file(b"static char a_bits[] = { 1 };\n#define a_width 8\n#define a_height 1\n").is_none());
+        // a line of 254 characters or more is the end of the file
+        let mut long = b"#define a_width 8\n#define a_height 1\n/*".to_vec();
+        long.extend(std::iter::repeat_n(b'x', 260));
+        long.extend_from_slice(b"*/\nstatic char a_bits[] = { 1 };\n");
+        assert!(read_bitmap_file(&long).is_none());
+    }
+
+    #[test]
+    fn ppm_reads_like_readppm_c() {
+        let mut ctx = Ctx::default();
+        // binary, maxval 15 scaled to 255; a comment in the header
+        let mut p6 = b"P6\n# c\n2 1\n15\n".to_vec();
+        p6.extend_from_slice(&[0, 15, 5, 15, 0, 1]);
+        let (r, pic) = read_bytes(&mut ctx, p6);
+        assert!(r.is_ok());
+        assert_eq!(pic.subtype, P_PCX);
+        assert_eq!(pic.cmap, vec![[0, 255, 85], [255, 0, 17]]);
+        // 16 bit samples
+        let mut p6 = b"P6 1 1 65535 ".to_vec();
+        p6.extend_from_slice(&[0x80, 0x00, 0xff, 0xff, 0x00, 0x00]);
+        let (_, pic) = read_bytes(&mut ctx, p6);
+        assert_eq!(pic.cmap, vec![[128, 255, 0]]);
+        // ASCII: values above maxval are clamped (the C fallback reader)
+        let (_, pic) = read_bytes(&mut ctx, b"P3 1 1 7 0 7 9".to_vec());
+        assert_eq!(pic.cmap, vec![[0, 255, 255]]);
+        // failures are "Bad PPM format"
+        for bad in [
+            &b"P6 1 1 255 \0\0"[..],
+            b"P6 0 1 255 ",
+            b"P6 1 1 0 \0\0\0",
+            b"P6 1 1 70000 \0\0\0\0\0\0",
+            b"P3 2 1 255 1 2 3 4",
+        ] {
+            assert_eq!(read_bytes(&mut ctx, bad.to_vec()).0.unwrap_err(), "t: Bad PPM format");
+        }
+        // P5 is not a picture type at all
+        assert_eq!(
+            read_bytes(&mut ctx, b"P5 1 1 255 \0".to_vec()).0.unwrap_err(),
+            "t: Unknown image format"
+        );
+    }
+
+    /// A PCX file: header, then `body`.
+    fn pcx(bpp: u8, planes: u8, w: u16, h: u16, bytes_per_line: u16, pal16: &[u8], body: &[u8]) -> Vec<u8> {
+        let mut f = vec![10, 5, 1, bpp, 0, 0, 0, 0];
+        f.extend_from_slice(&(w - 1).to_le_bytes());
+        f.extend_from_slice(&(h - 1).to_le_bytes());
+        f.extend_from_slice(&[0; 4]);
+        let mut p = pal16.to_vec();
+        p.resize(48, 0);
+        f.extend(p);
+        f.extend_from_slice(&[0, planes]);
+        f.extend_from_slice(&bytes_per_line.to_le_bytes());
+        f.resize(128, 0);
+        f.extend_from_slice(body);
+        f
+    }
+
+    #[test]
+    fn pcx_subtypes_as_read_pcx_c() {
+        let mut ctx = Ctx::default();
+        // 1 bit, 4 planes: the planes add up to the pixel value (bytes from
+        // 0xc0 on need a run count)
+        let (r, pic) = read_bytes(
+            &mut ctx,
+            pcx(
+                1,
+                4,
+                8,
+                1,
+                2,
+                &[1, 1, 1, 2, 2, 2],
+                &[0xc1, 0xaa, 0x00, 0xc1, 0xcc, 0x00, 0xc1, 0xf0, 0x00, 0x0f, 0x00],
+            ),
+        );
+        assert!(r.is_ok());
+        assert_eq!((pic.numcols, pic.subtype), (16, P_PCX));
+        assert_eq!(pic.bitmap, vec![7, 6, 5, 4, 11, 10, 9, 8]);
+        assert_eq!(pic.cmap[..2], [[1, 1, 1], [2, 2, 2]]);
+        // 8 bit: the palette follows the data after a splitter byte
+        let mut body = vec![0, 1, 2, 3, 0x0c];
+        body.extend((0..256).flat_map(|i| [i as u8, 0, 255 - i as u8]));
+        let (_, pic) = read_bytes(&mut ctx, pcx(8, 1, 4, 1, 4, &[], &body));
+        assert_eq!(pic.numcols, 256);
+        assert_eq!(pic.cmap.get(3), Some(&[3, 0, 252]));
+        // a run of 0xc2 0x07 is two 7s; without a palette C reads 0xff
+        let (_, pic) = read_bytes(&mut ctx, pcx(8, 1, 2, 1, 2, &[], &[0xc2, 7]));
+        assert_eq!(pic.bitmap, vec![7, 7]);
+        assert_eq!(pic.cmap[0], [255; 3]);
+        // 24 bit: one plane after the other in a row
+        let (_, pic) = read_bytes(&mut ctx, pcx(8, 3, 2, 1, 2, &[], &[1, 2, 3, 4, 5, 6]));
+        assert_eq!(pic.numcols, RGB_NUMCOLS);
+        assert_eq!(pic.bitmap, vec![1, 3, 5, 2, 4, 6]);
+        // 2 and 4 bits per pixel in one plane, and 3 planes of 8 bits per
+        // pixel with 4 planes, are unsupported
+        for (bpp, planes) in [(2, 1), (4, 1), (8, 4), (8, 2), (1, 5), (1, 0)] {
+            let r = read_bytes(&mut ctx, pcx(bpp, planes, 2, 1, 1, &[], &[0, 0, 0, 0])).0;
+            assert_eq!(r.unwrap_err(), "t: Bad PCX format", "{bpp} {planes}");
+        }
     }
 
     #[test]
@@ -1457,7 +2482,7 @@ mod tests {
                     data,
                 };
                 let mut pic = Pic::default();
-                let _ = read_pic(&ctx, &stream, &mut pic);
+                let _ = read_pic(&mut ctx.clone(), &stream, &mut pic);
             }
             junk.insert(0, 0x1f);
             junk.insert(1, 0x9d);
