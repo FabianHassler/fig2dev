@@ -661,6 +661,24 @@ pub fn drawing_order(objects: &Compound) -> Vec<(i32, Obj<'_>)> {
 /// bounds, `-Z`, the metric correction, then the driver's header, grid,
 /// objects deepest first and trailer.
 pub fn convert(ctx: &mut Ctx, dev: &mut dyn Driver, objects: &Compound) -> Result<Status, String> {
+    let (output, exit) = convert_partial(ctx, dev, objects);
+    match exit {
+        Ok(exit) => Ok(Status { output, exit }),
+        Err(msg) => Err(msg),
+    }
+}
+
+/// [`convert`] that also returns what the driver had written when it failed:
+/// fig2dev's `exit(1)` in a driver flushes stdio, so the output file keeps
+/// the partial output. The second element is the exit status or the
+/// message of the failure (`exit(1)`).
+pub fn convert_partial(ctx: &mut Ctx, dev: &mut dyn Driver, objects: &Compound) -> (Vec<u8>, Result<i32, String>) {
+    let mut out = Out::new();
+    let r = convert_into(ctx, dev, objects, &mut out);
+    (out.buf, r)
+}
+
+fn convert_into(ctx: &mut Ctx, dev: &mut dyn Driver, objects: &Compound, out: &mut Out) -> Result<i32, String> {
     // Grid spacing in Fig units.
     ctx.grid_minor_spacing *= ctx.grid_mult * ctx.ppi as f32;
     ctx.grid_major_spacing *= ctx.grid_mult * ctx.ppi as f32;
@@ -699,31 +717,26 @@ pub fn convert(ctx: &mut Ctx, dev: &mut dyn Driver, objects: &Compound) -> Resul
     }
 
     let recs = drawing_order(objects);
-    let mut out = Out::new();
     if recs.is_empty() {
         ctx.warn("fig2dev: No objects in Fig file");
-        return Ok(Status {
-            output: out.buf,
-            exit: -1,
-        });
+        return Ok(-1);
     }
-    dev.start(ctx, &mut out, objects)?;
+    dev.start(ctx, out, objects)?;
     let (major, minor) = (ctx.grid_major_spacing, ctx.grid_minor_spacing);
-    dev.grid(ctx, &mut out, major, minor)?;
+    dev.grid(ctx, out, major, minor)?;
     for (depth, obj) in &recs {
         if !ctx.depth_filter(*depth) {
             continue;
         }
         match obj {
-            Obj::Arc(a) => dev.arc(ctx, &mut out, a)?,
-            Obj::Ellipse(e) => dev.ellipse(ctx, &mut out, e)?,
-            Obj::Line(l) => dev.line(ctx, &mut out, l)?,
-            Obj::Spline(s) => dev.spline(ctx, &mut out, s)?,
-            Obj::Text(t) => dev.text(ctx, &mut out, t)?,
+            Obj::Arc(a) => dev.arc(ctx, out, a)?,
+            Obj::Ellipse(e) => dev.ellipse(ctx, out, e)?,
+            Obj::Line(l) => dev.line(ctx, out, l)?,
+            Obj::Spline(s) => dev.spline(ctx, out, s)?,
+            Obj::Text(t) => dev.text(ctx, out, t)?,
         }
     }
-    let exit = dev.end(ctx, &mut out)?;
-    Ok(Status { output: out.buf, exit })
+    dev.end(ctx, out)
 }
 
 /// Print the comments (`print_comments`): `"{pre} {comment} {post}"` per

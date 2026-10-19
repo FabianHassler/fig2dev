@@ -618,7 +618,8 @@ fn fill_commands(style: i32, color: i32) -> &'static str {
 /// C's `%W.Pf`: Rust's `{:W.P}`, with `nan` and `inf` as C writes them.
 fn cf(v: f64, width: usize, prec: usize) -> String {
     let s = if v.is_nan() {
-        if v.is_sign_negative() { "-nan" } else { "nan" }.to_string()
+        // macOS prints no sign for NaN.
+        "nan".to_string()
     } else if v.is_infinite() {
         if v < 0.0 { "-inf" } else { "inf" }.to_string()
     } else {

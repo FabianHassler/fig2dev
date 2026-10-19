@@ -581,3 +581,23 @@ fn latex_a_message_has_no_newline() {
     let o = fig2dev(&["-L", "latex", "-a"], FIG);
     assert_eq!(err(&o), "warning: latex option -a obsolete");
 }
+
+/// A driver's `exit(1)` leaves what it had written (audit pass 25).
+#[test]
+fn driver_error_keeps_partial_output() {
+    let mut fig = String::from("#FIG 3.2\nLandscape\nCenter\nInches\nLetter\n100.00\nSingle\n-2\n1200 2\n");
+    for i in 1..=1100 {
+        fig += &format!(
+            "2 1 0 {} 0 7 50 -1 -1 0.000 0 0 -1 0 0 2\n\t 1200 {} 4000 {}\n",
+            i + 1,
+            i * 10,
+            i * 10 + 7
+        );
+    }
+    let o = fig2dev(&["-L", "gbx"], &fig);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(err(&o).contains("Maximum number of possible apertures (989) exceeded."));
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(out.starts_with("G04 Gerber RS-274x file*"), "partial output kept");
+    assert!(!out.contains("M02*"));
+}
