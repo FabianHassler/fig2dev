@@ -345,6 +345,12 @@ fn pass_to_driver(
 /// fig2dev's `strerror(errno)` for an I/O error; `None` is errno 0, as
 /// after a read that failed on the file's content.
 fn strerror(e: Option<&std::io::Error>) -> String {
+    // Windows' own messages differ from the C library's: use the C text
+    // for the errors fig2dev reports.
+    #[cfg(not(unix))]
+    if let Some(t) = c_strerror(e) {
+        return t.to_string();
+    }
     let code = e.map_or(Some(0), std::io::Error::raw_os_error);
     match code {
         Some(n) => {
@@ -356,6 +362,29 @@ fn strerror(e: Option<&std::io::Error>) -> String {
         }
         None => e.map(ToString::to_string).unwrap_or_default(),
     }
+}
+
+/// The C library's `strerror` text for an I/O error, where Rust's
+/// message on this platform says something else.
+#[cfg(not(unix))]
+fn c_strerror(e: Option<&std::io::Error>) -> Option<&'static str> {
+    use std::io::ErrorKind as K;
+    let Some(e) = e else {
+        return Some("Undefined error: 0");
+    };
+    Some(match e.kind() {
+        K::NotFound => "No such file or directory",
+        K::PermissionDenied => "Permission denied",
+        K::AlreadyExists => "File exists",
+        K::IsADirectory => "Is a directory",
+        K::NotADirectory => "Not a directory",
+        K::InvalidInput => "Invalid argument",
+        K::BrokenPipe => "Broken pipe",
+        K::StorageFull => "No space left on device",
+        K::ReadOnlyFilesystem => "Read-only file system",
+        K::OutOfMemory => "Cannot allocate memory",
+        _ => return None,
+    })
 }
 
 /// Read at most `MAX_FILE_BYTES` + 1 bytes.
