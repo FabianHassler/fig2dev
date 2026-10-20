@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-20
 
 - Building figures in memory (RustFig D8): `Ctx::for_figure(ppi, metric, colors)`, `Figure { ctx, objects }` (with `convert`), `trans_spline::splines_to_lines` (X-splines to lines as the reader does). No change to the program or its output.
 - The command line is in the library (D10): `fig2dev::cli::run(args, stdin, stdout, stderr) -> exit code` (not on wasm); the `fig2dev` binary is a thin `main` around it, output and exit status unchanged.
