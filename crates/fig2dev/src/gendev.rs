@@ -95,6 +95,9 @@ pub struct Ctx {
     /// Input and output file names (`from`, `to`); `None` for stdin/stdout.
     pub from: Option<String>,
     pub to: Option<String>,
+    /// The output is stdout and it can't seek (a pipe or a terminal):
+    /// the EMF driver can't rewrite its header (set by the program).
+    pub output_unseekable: bool,
     /// `-n`: the name some drivers put into their output.
     pub name: Option<String>,
     pub font_size: f64,
@@ -179,6 +182,7 @@ impl Default for Ctx {
         Ctx {
             from: None,
             to: None,
+            output_unseekable: false,
             name: None,
             font_size: 0.0,
             mag: 1.0,

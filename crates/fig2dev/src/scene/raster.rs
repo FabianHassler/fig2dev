@@ -327,7 +327,7 @@ pub fn rasterize_aa(scene: &Scene, pm: &mut Pixmap, opts: &RasterOptions, aa: bo
         match p {
             Prim::Path { subpaths, fill, stroke } => draw_path(pm, subpaths, fill.as_ref(), stroke.as_ref(), opts, aa),
             Prim::Text(t) => draw_text(pm, t, opts, aa),
-            Prim::PictureRef { .. } => {}
+            Prim::PictureRef { .. } | Prim::LinkedImage { .. } => {}
             Prim::Image {
                 corners,
                 image,

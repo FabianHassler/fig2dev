@@ -354,6 +354,7 @@ impl Driver for SceneDriver {
             skip_special: matches!(self.lang, "pstex" | "pdftex"),
             eps_preview: self.format.is_bitmap(),
             genps: !matches!(self.format, ExportFormat::Svg),
+            link_pictures: matches!(self.format, ExportFormat::Svg),
         };
         self.builder = Some(Builder::new(ctx, text));
         self.options = Some(o);

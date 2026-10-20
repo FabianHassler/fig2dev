@@ -127,6 +127,16 @@ pub enum Prim {
         /// The picture's file name, as in the figure.
         file: String,
     },
+    /// A picture as gensvg writes it: a link to the file (it is not read),
+    /// positioned by the box's first and opposite corners (`link_pictures`).
+    LinkedImage {
+        file: String,
+        /// The box's first point and its third (the opposite corner), rounded
+        /// to integers as gensvg prints them.
+        p1: (i32, i32),
+        p3: (i32, i32),
+        flipped: bool,
+    },
 }
 
 /// A text run.
@@ -202,7 +212,7 @@ impl Scene {
                     }
                 }
                 Prim::Text(t) => t.color = f(t.color),
-                Prim::Image { .. } | Prim::PictureRef { .. } => {}
+                Prim::Image { .. } | Prim::PictureRef { .. } | Prim::LinkedImage { .. } => {}
             }
         }
     }
@@ -227,7 +237,7 @@ impl Prim {
             }
             Prim::Text(t) => t.color = t.color.grayed(),
             // Pictures keep their pixels; they can't be picked either way.
-            Prim::Image { .. } | Prim::PictureRef { .. } => {}
+            Prim::Image { .. } | Prim::PictureRef { .. } | Prim::LinkedImage { .. } => {}
         }
     }
 
@@ -263,6 +273,9 @@ impl Prim {
             }
             Prim::Image { corners, .. } | Prim::PictureRef { corners, .. } => {
                 Rect::from_points(corners.iter().copied())
+            }
+            Prim::LinkedImage { p1, p3, .. } => {
+                Rect::from_points([p1, p3].map(|&(x, y)| Point::new(f64::from(x), f64::from(y))))
             }
         }
     }

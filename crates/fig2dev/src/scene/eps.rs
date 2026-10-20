@@ -484,6 +484,7 @@ fn draw_prims(c: &mut Ctx, scene: &Scene, embeds: &std::collections::BTreeMap<St
             continue;
         }
         match p {
+            Prim::LinkedImage { .. } => {}
             Prim::PictureRef { corners, flipped, file } => {
                 if let Some(e) = embeds.get(file) {
                     embed(c, corners, *flipped, e);

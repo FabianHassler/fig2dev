@@ -439,6 +439,9 @@ pub fn to_svg_page(
             }
             Prim::Text(t) => text(&mut out, t),
             Prim::PictureRef { .. } => {}
+            Prim::LinkedImage { file, p1, p3, flipped } => {
+                linked_image(&mut out, file, *p1, *p3, *flipped);
+            }
             Prim::Image {
                 corners,
                 image,
@@ -495,6 +498,47 @@ fn n6(v: f64) -> String {
     } else {
         "0".into()
     }
+}
+
+/// gensvg_line's picture: a link to the file, rotated and flipped by the
+/// box's orientation.
+fn linked_image(out: &mut String, file: &str, p1: (i32, i32), p3: (i32, i32), flipped: bool) {
+    let (mut px, mut py) = p1;
+    let mut width = p3.0.wrapping_sub(px);
+    let mut height = p3.1.wrapping_sub(py);
+    let mut rotation = match (width < 0, height < 0) {
+        (true, true) => 180,
+        (true, false) => 90,
+        (false, true) => 270,
+        (false, false) => 0,
+    };
+    if flipped {
+        rotation -= 90;
+    }
+    if width < 0 {
+        px = p3.0;
+        width = width.wrapping_neg();
+    }
+    if height < 0 {
+        py = p3.1;
+        height = height.wrapping_neg();
+    }
+    let cx = px.wrapping_add(width / 2);
+    let cy = py.wrapping_add(height / 2);
+    let _ = writeln!(
+        out,
+        "<!-- Image -->\n<image xlink:href=\"file:{file}\" preserveAspectRatio=\"none\""
+    );
+    if flipped {
+        let _ = writeln!(
+            out,
+            "transform=\"rotate({rotation} {cx} {cy}) scale(-1,1) translate({},0)\"",
+            cx.wrapping_mul(2).wrapping_neg()
+        );
+    } else if rotation != 0 {
+        let _ = writeln!(out, "transform=\"rotate({rotation} {cx} {cy})\"");
+    }
+    let _ = writeln!(out, "x=\"{px}\" y=\"{py}\" width=\"{width}\" height=\"{height}\"/>");
 }
 
 #[cfg(test)]
