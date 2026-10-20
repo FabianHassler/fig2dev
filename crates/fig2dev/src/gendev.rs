@@ -129,12 +129,21 @@ pub struct Ctx {
     /// `-g` given.
     pub bgspec: bool,
     pub gif_transparent: String,
+    /// The transparent colour's number as the header gives it (`-2` none,
+    /// `-1` background), which `gif_transparent` cannot say. Not in fig2dev.
+    pub header_transparent: i32,
     pub papersize: String,
     pub boundingbox: String,
     /// The language (`-L`).
     pub lang: String,
     /// `-E`: `None`, or "UTF-8", "ISO-8859-1", "ISO-8859-2", or another name.
     pub input_encoding: Option<String>,
+    /// The reader reads for an editor, as xfig does, not for the drivers:
+    /// Fig 3.2 X-splines stay splines with their shape factors (the drivers
+    /// need them as lines, [`crate::trans_spline::splines_to_lines`]), and a
+    /// text keeps its leading blanks beyond the one that separates it from
+    /// the fields (fig2dev's `sscanf` drops them all). Not in fig2dev.
+    pub editing: bool,
     /// Whether texts need a conversion to UTF-8 (`util::textconvert`).
     pub text_conv: crate::util::textconvert::ConvState,
     /// `-g`.
@@ -208,10 +217,12 @@ impl Default for Ctx {
             grayonly: false,
             bgspec: false,
             gif_transparent: String::new(),
+            header_transparent: -2,
             papersize: String::new(),
             boundingbox: String::new(),
             lang: String::new(),
             input_encoding: None,
+            editing: false,
             text_conv: Default::default(),
             background: Rgb::default(),
             grid_minor_spacing: 0.0,

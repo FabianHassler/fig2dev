@@ -129,3 +129,79 @@ fn old_splines_keep_controls() {
     assert_eq!(c.splines[0].controls.len(), 2);
     assert_eq!(c.splines[0].controls[1].rx, 7.0);
 }
+
+#[test]
+fn editing_mode_keeps_splines_blanks_and_the_background_transparency() {
+    let src = format!(
+        "{}\n4 0 0 50 -1 0 12 0.0000 4 135 405 600 600   two\\001\n3 4 0 1 0 7 50 -1 -1 0.000 0 0 0 3\n\t 0 0 600 600 1200 0\n\t 0.000 1.000 0.000\n",
+        TOP.replace("-2\n", "-1\n").trim_end()
+    );
+    // fig2dev: the spline becomes a line, the text loses its blanks.
+    let (r, _, ctx) = read(&src);
+    let c = r.unwrap();
+    assert_eq!((c.splines.len(), c.lines.len()), (0, 1));
+    assert_eq!(c.texts[0].cstring, "two");
+    assert_eq!(ctx.header_transparent, -1);
+    // An editor: the spline stays, the text keeps its blanks beyond one.
+    let mut ctx = Ctx {
+        editing: true,
+        ..Ctx::default()
+    };
+    let c = readfp_fig(&mut ctx, src.as_bytes()).unwrap();
+    assert_eq!((c.splines.len(), c.lines.len()), (1, 0));
+    assert_eq!(c.texts[0].cstring, "  two");
+}
+
+#[test]
+fn editing_mode_reads_as_xfig_does() {
+    // Kept as written: an arc off its circle, an open polygon, a distorted
+    // box, an ellipse of radius 0, a 2-point polyline's fill; a NUL ends a
+    // line; angles become 0 to 2 pi; a polygon of 2 points is deleted.
+    let body = "5 1 0 1 0 7 50 -1 -1 0.000 0 1 0 0 100.000 0.000 200 0 100 100 0 0\n\
+1 3 0 1 0 7 50 -1 -1 0.000 1 -1.0000 600 600 0 100 600 600 600 700\n\
+2 3 0 1 0 7 50 -1 -1 0.000 0 0 -1 0 0 3\n\t 0 0 100 0 100 100\n\
+2 2 0 1 0 7 50 -1 -1 0.000 0 0 -1 0 0 5\n\t 0 0 100 0 100 50 20 50 0 0\n\
+2 1 0 1 0 7 50 -1 20 0.000 0 0 -1 0 0 2\n\t 0 0 100 0\n\
+2 3 0 1 0 7 50 -1 -1 0.000 0 0 -1 0 0 2\n\t 0 0 100 0\n";
+    let src = format!("{TOP}{body}");
+    let mut ctx = Ctx {
+        editing: true,
+        ..Ctx::default()
+    };
+    let c = readfp_fig(&mut ctx, src.as_bytes()).unwrap();
+    assert_eq!(c.arcs.len(), 1);
+    assert_eq!(c.arcs[0].point[2], Point::new(0, 0));
+    assert_eq!(c.ellipses.len(), 1);
+    assert!((c.ellipses[0].angle - (2.0 * std::f64::consts::PI - 1.0)).abs() < 1e-9);
+    let kinds: Vec<(i32, usize, i32)> = c
+        .lines
+        .iter()
+        .map(|l| (l.type_, l.points.len(), l.fill_style))
+        .collect();
+    // The open polygon (3 points) and the 5-point box stay, the filled
+    // 2-point polyline stays filled, the 2-point polygon is deleted.
+    assert_eq!(
+        kinds,
+        [(T_POLYGON, 3, -1), (T_BOX, 5, -1), (T_POLYLINE, 2, 20)],
+        "{:?}",
+        ctx.messages
+    );
+    assert!(
+        ctx.messages.iter().any(|m| m.contains("Deleting polygon")),
+        "{:?}",
+        ctx.messages
+    );
+    // fig2dev refuses the radius 0 and repairs the others.
+    let (r, _, _) = read(&src);
+    assert!(r.is_err());
+
+    let nul = format!("{TOP}4 0 0 50 -1 0 12 0.0000 4 135 405 600 600 ab\0cd\\001\n");
+    let mut ctx = Ctx {
+        editing: true,
+        ..Ctx::default()
+    };
+    // The line ends at the NUL, so the text has no end mark: it takes the
+    // next lines (none here), as xfig's.
+    assert!(readfp_fig(&mut ctx, nul.as_bytes()).is_ok());
+    assert!(read(&nul).0.is_err());
+}

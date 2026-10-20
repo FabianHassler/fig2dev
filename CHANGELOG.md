@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0 — 2026-10-20
+
+- Reading for an editor (RustFig D3): `Ctx::editing` (default `false`, which leaves the reader and every driver exactly as fig2dev's) makes `read::readfp_fig` read as xfig's `f_read.c` does, not as fig2dev's `read.c`. Kept as written, where fig2dev repairs or refuses: arcs off their circle (no `sanitize_arc`), open polygons, distorted boxes, boxes and polygons with few points (xfig deletes a box, arc-box or picture with fewer than 5 points and a polygon with fewer than 3, with a message, instead of converting them), the fill of 2-point polylines, ellipses of radius 0, NUL bytes (a line ends there, as `fgets` and C strings do). Done as xfig does: depth clamped to 0..999 and fill style fixed (`fix_depth`, `fix_fillstyle`), ellipse and text angles turned into 0 to 2 pi (`fix_angle`), an unknown text font or justification set to the default with a message, a text keeps its leading blanks beyond the one that separates it from the fields (fig2dev's `sscanf` drops them all), a file of ASCII only is ISO-8859-1 (fig2dev: UTF-8), Fig 3.2 X-splines stay splines with their shape factors (fig2dev converts them to lines; `splines_to_lines` still does for the drivers), the fill colour of an unfilled object is renumbered like the other colours. The Fig 1.3 reader (`read1_3`) is unchanged. Not in fig2dev.
+- `Ctx::header_transparent`: the transparent colour's number as the header gives it (`-2` none, `-1` background), which `gif_transparent` (a colour) cannot tell. Set by the reader in every mode; the default is `-2`. Not in fig2dev.
+
 ## 0.3.0 — 2026-10-20
 
 - Building figures in memory (RustFig D8): `Ctx::for_figure(ppi, metric, colors)`, `Figure { ctx, objects }` (with `convert`), `trans_spline::splines_to_lines` (X-splines to lines as the reader does). No change to the program or its output.
