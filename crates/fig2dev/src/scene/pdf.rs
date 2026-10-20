@@ -503,7 +503,7 @@ pub fn to_pdf_pages(
                 }
             }
             Prim::Text(t) => text(&mut c, t),
-            Prim::PictureRef { .. } => {}
+            Prim::PictureRef { .. } | Prim::LinkedImage { .. } => {}
             Prim::Image {
                 corners,
                 image: img,

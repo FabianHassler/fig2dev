@@ -244,3 +244,36 @@ fn same_as_fig2dev() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn an_unseekable_output_keeps_the_first_header() {
+    // genemf_end: fseek fails on a pipe, the header isn't rewritten and
+    // fig2dev exits with -1 after its message.
+    let run = |unseekable: bool| {
+        let mut ctx = Ctx {
+            lang: "emf".into(),
+            output_unseekable: unseekable,
+            ..Ctx::default()
+        };
+        let mut dev = drivers::driver("emf").unwrap();
+        ctx.font_size *= ctx.fontmag;
+        let objects = readfp_fig(&mut ctx, format!("{HDR}{BOX}").as_bytes()).unwrap();
+        let status = convert(&mut ctx, dev.as_mut(), &objects).unwrap();
+        (status.output, status.exit, ctx.messages)
+    };
+    let (file, exit, msgs) = run(false);
+    assert_eq!((exit, msgs.len()), (0, 0));
+    let (pipe, exit, msgs) = run(true);
+    assert_eq!(exit, -1);
+    assert_eq!(
+        msgs,
+        ["fig2dev: error: fseek() failed. EMF language requires the output is seekable.\n\t\tOutput to a plain file, not to a pipe."]
+    );
+    assert_eq!(pipe.len(), file.len());
+    // only the header's byte count, record count and handle count differ
+    assert_eq!(word(&pipe, 48), 0);
+    assert_ne!(word(&file, 48), 0);
+    assert_eq!(&pipe[HDR_END..], &file[HDR_END..]);
+}
+
+const HDR_END: usize = 108;

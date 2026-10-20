@@ -460,6 +460,33 @@ fn open_output(to: Option<&String>) -> Result<Output, Exit> {
     Ok(Output::File(path.clone(), f))
 }
 
+/// Whether stdout is something `fseek` works on: a regular file, a block
+/// device or `/dev/null` (a pipe, a socket or a terminal is not). Found
+/// without unsafe code through the file `/dev/stdout` names; where that
+/// doesn't exist (Windows) stdout counts as seekable.
+fn stdout_seekable() -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+        let Ok(m) = std::fs::metadata("/dev/stdout") else {
+            return true;
+        };
+        let t = m.file_type();
+        if t.is_file() || t.is_block_device() {
+            return true;
+        }
+        if t.is_char_device() {
+            // /dev/null takes a seek; a terminal doesn't
+            return std::fs::metadata("/dev/null").is_ok_and(|n| n.rdev() == m.rdev());
+        }
+        false
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
 /// Write the result.
 fn write_output(out: Output, bytes: &[u8]) -> Result<(), Exit> {
     match out {
@@ -581,6 +608,7 @@ fn run(args: Vec<String>) -> Result<u8, Exit> {
         return Ok(1);
     };
     let output = open_output(to)?;
+    ctx.output_unseekable = matches!(output, Output::Stdout) && !stdout_seekable();
     let (bytes, status) = fig2dev::convert_partial(&mut ctx, dev.as_mut(), &objects);
     flush_messages(&mut ctx);
     // A driver's exit(1) keeps what it wrote so far (stdio is flushed).

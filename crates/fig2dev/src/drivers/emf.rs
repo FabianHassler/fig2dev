@@ -2127,6 +2127,15 @@ impl Driver for Emf {
         self.flush(ctx, out);
 
         // Rewrite the updated header record at the beginning of the file.
+        // (fseek fails on a pipe: the header stays as it was written, and
+        // fig2dev exits with -1.)
+        if ctx.output_unseekable {
+            ctx.warn(
+                "fig2dev: error: fseek() failed. EMF language requires the output is seekable.\n\t\t\
+                 Output to a plain file, not to a pipe.",
+            );
+            return Ok(-1);
+        }
         self.header[12] = self.n_bytes;
         self.header[13] = self.n_records;
         // the size of the handle table is the last handle number + 1

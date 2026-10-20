@@ -18,7 +18,7 @@ use super::{
 };
 use crate::gendev::{drawing_order, Obj, FIG_COLOR_NAMES, NUM_STD_COLS};
 use crate::object::{self as f, Compound};
-use crate::util::readpics::{load_picture, LoadedPicture};
+use crate::util::readpics::{load_picture, load_picture_genps, LoadedPicture};
 use crate::Ctx;
 use figbase::color::{Rgb, STANDARD_COLORS};
 use figbase::geom::{
@@ -53,6 +53,10 @@ pub struct TextOptions {
     /// the nonzero rule, pictures without a frame. Off for SVG (gensvg),
     /// and for the comparison with RustFig's canvas.
     pub genps: bool,
+    /// Link pictures as gensvg does (`<image xlink:href="file:NAME">`)
+    /// without reading them: no pixels, no messages, no placeholder.
+    /// SVG export only; the canvas keeps its placeholder.
+    pub link_pictures: bool,
 }
 
 impl Default for TextOptions {
@@ -63,6 +67,7 @@ impl Default for TextOptions {
             skip_special: false,
             eps_preview: false,
             genps: false,
+            link_pictures: false,
         }
     }
 }
@@ -298,6 +303,19 @@ impl Builder {
             l.join_style,
         );
         let kind = l.type_;
+        if kind == f::T_PIC_BOX && self.text.link_pictures {
+            // gensvg_line: the file is not read; the box's first and third points.
+            let pts = self.points(&l.points);
+            if let (Some(a), Some(c)) = (pts.first(), pts.get(2)) {
+                self.prims.push(Prim::LinkedImage {
+                    file: l.pic.as_deref().map(|p| p.file.clone()).unwrap_or_default(),
+                    p1: (crate::round(a.x), crate::round(a.y)),
+                    p3: (crate::round(c.x), crate::round(c.y)),
+                    flipped: l.pic.as_deref().is_some_and(|p| p.flipped != 0),
+                });
+            }
+            return;
+        }
         // Unknown types draw as polylines.
         let closed = matches!(kind, f::T_BOX | f::T_POLYGON | f::T_ARC_BOX | f::T_PIC_BOX);
         let rect = matches!(kind, f::T_BOX | f::T_ARC_BOX | f::T_PIC_BOX);
@@ -399,7 +417,12 @@ impl Builder {
         let mut image = None;
         let mut dct = false;
         if !file.is_empty() {
-            match load_picture(ctx, file) {
+            let loaded = if self.text.genps {
+                load_picture_genps(ctx, file)
+            } else {
+                load_picture(ctx, file)
+            };
+            match loaded {
                 Ok(LoadedPicture::Raster(img)) => image = Some(Shared::new(img)),
                 Ok(LoadedPicture::Eps {
                     llx,
@@ -448,8 +471,14 @@ impl Builder {
                     }
                 }
                 Ok(LoadedPicture::Pdf) => {}
-                // fig2dev's message; the picture becomes a placeholder.
-                Err(e) => ctx.warn(e),
+                // fig2dev's message. genps then draws nothing (not even a
+                // frame); the canvas keeps a crossed box as placeholder.
+                Err(e) => {
+                    ctx.warn(e);
+                    if self.text.genps {
+                        return;
+                    }
+                }
             }
         }
         // genps strokes no frame ("pic object has no line thickness").

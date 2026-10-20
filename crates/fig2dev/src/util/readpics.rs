@@ -1925,6 +1925,16 @@ pub enum LoadedPicture {
 /// taken relative to `ctx.dir`. Errors carry genps.c's messages ("No such
 /// picture file: …", "…: Unknown image format").
 pub fn load_picture(ctx: &mut Ctx, name: &str) -> Result<LoadedPicture, String> {
+    load_picture_as(ctx, name, false)
+}
+
+/// [`load_picture`] with the pixels as genps draws them (`genps`: see
+/// [`pic_to_raster_as`]).
+pub fn load_picture_genps(ctx: &mut Ctx, name: &str) -> Result<LoadedPicture, String> {
+    load_picture_as(ctx, name, true)
+}
+
+fn load_picture_as(ctx: &mut Ctx, name: &str, genps: bool) -> Result<LoadedPicture, String> {
     if file_on_disk(&pic_path(ctx, name)).is_none() {
         return Err(format!("No such picture file: {name}"));
     }
@@ -1959,13 +1969,21 @@ pub fn load_picture(ctx: &mut Ctx, name: &str) -> Result<LoadedPicture, String> 
                 data: stream.data,
             })
         }
-        _ => pic_to_raster(&pic).map(LoadedPicture::Raster),
+        _ => pic_to_raster_as(&pic, genps).map(LoadedPicture::Raster),
     }
 }
 
 /// The pixels of a picture `readpics` read, as RGBA: XBM bits in black
 /// on transparent, the transparent colour of the others transparent.
 pub fn pic_to_raster(pic: &Pic) -> Result<RasterImage, String> {
+    pic_to_raster_as(pic, false)
+}
+
+/// [`pic_to_raster`]; with `genps` an indexed picture (at most 256 colours)
+/// whose transparency is one colour (`TRANSP_COLOR`: a grey PNG with a
+/// `tRNS` colour or an alpha channel, composited already) stays opaque,
+/// as genps's `indexed_image` writes a colour map and no `/MaskColor`.
+pub fn pic_to_raster_as(pic: &Pic, genps: bool) -> Result<RasterImage, String> {
     let (w, h) = (pic.bit_size.x, pic.bit_size.y);
     let (Ok(w), Ok(h)) = (u32::try_from(w), u32::try_from(h)) else {
         return Err(format!("{}: bad picture size", pic.file));
@@ -2010,6 +2028,8 @@ pub fn pic_to_raster(pic: &Pic) -> Result<RasterImage, String> {
             let c = pic.cmap.get(usize::from(i)).copied().unwrap_or([0, 0, 0]);
             if indexed_mask(i) {
                 rgba.extend_from_slice(&[c[0], c[1], c[2], 0]);
+            } else if genps {
+                rgba.extend_from_slice(&[c[0], c[1], c[2], 255]);
             } else {
                 push(&mut rgba, c);
             }
