@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-10-20
 
 - Hardening leftovers (2026-10-19): a picture that can't be read draws nothing in eps/ps/pdf and the bitmaps (as genps), and svg links every picture as gensvg does (`<image xlink:href="file:NAME">` with its rotate/flip transform, no read, no message); an indexed picture with one transparent colour (grey PNG with `tRNS` or alpha) is written opaque as genps's `indexed_image` does; `-L emf` to a pipe or terminal keeps the first header, prints genemf's fseek message and exits 255, to a file or `/dev/null` unchanged. API: `TextOptions.genps` now also drops unreadable pictures, new `TextOptions.link_pictures`, `Prim::LinkedImage`, `Ctx.output_unseekable`, `readpics::{load_picture_genps, pic_to_raster_as}`; `TextOptions::default()` (the canvas) keeps the crossed-box placeholder.
 - `-L sld` (AutoCAD slide): the rasteriser's pixels encoded as `ppmtoacad -quiet` writes a slide (17-byte header with the NUL, size, aspect, each colour mapped to the nearest of AutoCAD's 256 colours, one vector per run, colour 0 skipped; netpbm's colour-depth halving above 32,767 colours). Byte-identical to the reference `ppmtoacad` run on our own `-L ppm` output, and equal in header and size to the reference's sld on all 311 fixture and sample figures; pixels differ from ghostscript's as for every bitmap language. Messages as the other bitmaps (`-q`, `-t`).
