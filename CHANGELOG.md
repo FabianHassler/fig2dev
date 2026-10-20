@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Building figures in memory (RustFig D8): `Ctx::for_figure(ppi, metric, colors)`, `Figure { ctx, objects }` (with `convert`), `trans_spline::splines_to_lines` (X-splines to lines as the reader does). No change to the program or its output.
+- The command line is in the library (D10): `fig2dev::cli::run(args, stdin, stdout, stderr) -> exit code` (not on wasm); the `fig2dev` binary is a thin `main` around it, output and exit status unchanged.
+
 ## 0.2.0 — 2026-10-20
 
 - Hardening leftovers (2026-10-19): a picture that can't be read draws nothing in eps/ps/pdf and the bitmaps (as genps), and svg links every picture as gensvg does (`<image xlink:href="file:NAME">` with its rotate/flip transform, no read, no message); an indexed picture with one transparent colour (grey PNG with `tRNS` or alpha) is written opaque as genps's `indexed_image` does; `-L emf` to a pipe or terminal keeps the first header, prints genemf's fseek message and exits 255, to a file or `/dev/null` unchanged. API: `TextOptions.genps` now also drops unreadable pictures, new `TextOptions.link_pictures`, `Prim::LinkedImage`, `Ctx.output_unseekable`, `readpics::{load_picture_genps, pic_to_raster_as}`; `TextOptions::default()` (the canvas) keeps the crossed-box placeholder.

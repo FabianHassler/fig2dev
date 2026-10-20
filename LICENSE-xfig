@@ -58,7 +58,7 @@ notice. xfig's sources are cited as src/..., fig2dev's as fig2dev/... (its
 drivers as fig2dev/dev/...); app-defaults/Fig is xfig's resource file.
 `cargo xtask licences` checks that this list and those comments agree.
 
-- apps/fig2dev/src/main.rs: fig2dev/fig2dev.c, fig2dev/drivers.h, fig2dev/messages.c
+- crates/fig2dev/src/cli.rs: fig2dev/fig2dev.c, fig2dev/drivers.h, fig2dev/messages.c
 - crates/fig2dev/src/bound.rs: fig2dev/bound.c, fig2dev/bound.h, fig2dev/localmath.c
 - crates/fig2dev/src/drivers/cgm.rs: fig2dev/dev/gencgm.c
 - crates/fig2dev/src/drivers/dxf.rs: fig2dev/dev/gendxf.c
