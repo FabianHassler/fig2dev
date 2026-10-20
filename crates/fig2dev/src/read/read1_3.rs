@@ -224,7 +224,7 @@ impl Reader<'_, '_> {
         e.radiuses = Point::new(f.i(7), f.i(8));
         e.start = Point::new(f.i(9), f.i(10));
         e.end = Point::new(f.i(11), f.i(12));
-        if ellipse_invalid(&e) {
+        if ellipse_invalid(&e, false) {
             self.invalid_1_3("ellipse");
             return Err(-1);
         }

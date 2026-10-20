@@ -80,6 +80,7 @@ pub fn readfp_fig(ctx: &mut Ctx, src: &[u8]) -> Result<Compound, i32> {
     let Some(&first) = src.first() else {
         return Err(-2);
     };
+    let ctx_editing = ctx.editing;
     let mut r = Reader {
         ctx,
         inp: Scan::new(src),
@@ -87,7 +88,11 @@ pub fn readfp_fig(ctx: &mut Ctx, src: &[u8]) -> Result<Compound, i32> {
         comments: Vec::new(),
         num_usr_cols: 0,
         enc: Encoding::Latin1,
-        file_is_utf8: std::str::from_utf8(src).is_ok(),
+        // For an editor, a file of ASCII only (8-bit characters as octal
+        // escapes) is ISO-8859-1, as the format says; fig2dev takes it as
+        // UTF-8, which can turn escapes that happen to pair up into other
+        // characters.
+        file_is_utf8: std::str::from_utf8(src).is_ok() && !(ctx_editing && src.is_ascii()),
         nesting: 0,
     };
     if first == b'#' {
@@ -216,6 +221,26 @@ impl<'a> Reader<'a, '_> {
         v.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
     }
 
+    /// What xfig's `f_read.c` does for an editor (`Ctx::editing`) to every
+    /// object with a fill: `fix_depth` (0 to 999) and `fix_fillstyle` (no
+    /// tint on black or the default colour, style within range).
+    fn xfig_fix(&mut self, depth: &mut i32, fill_style: &mut i32, fill_color: i32) {
+        let line_no = self.line_no;
+        if *depth > 999 {
+            *depth = 999;
+            self.msg(format!(
+                "Depth > Maximum allowed (999), setting to 999 in line {line_no}."
+            ));
+        } else if *depth < 0 {
+            *depth = 0;
+            self.msg(format!("Depth < 0, setting to 0 in line {line_no}."));
+        }
+        if (fill_color == 0 || fill_color == DEFAULT) && (NUMSHADES..NUMSHADES + NUMTINTS).contains(fill_style) {
+            *fill_style = UNFILLED;
+        }
+        *fill_style = (*fill_style).clamp(UNFILLED, NUMSHADES + NUMTINTS + NUMPATTERNS - 1);
+    }
+
     /// `save_comment`: keep a comment line (without `#` and one blank)
     /// for the next object.
     fn save_comment(&mut self, line: &[u8]) {
@@ -252,9 +277,18 @@ impl<'a> Reader<'a, '_> {
             if raw.first() == Some(&b'\n') || raw == b"\r\n" {
                 continue;
             }
-            if raw.contains(&0) {
-                return Err(self.nul_in_line());
-            }
+            // xfig's fgets and C strings end a line at a NUL.
+            let raw = match raw.iter().position(|&c| c == 0) {
+                Some(nul) if self.ctx.editing => {
+                    let cut = raw.get(..nul).unwrap_or_default();
+                    if cut.is_empty() {
+                        continue;
+                    }
+                    cut
+                }
+                Some(_) => return Err(self.nul_in_line()),
+                None => raw,
+            };
             let line = match raw.strip_suffix(b"\n") {
                 Some(l) => l.strip_suffix(b"\r").unwrap_or(l),
                 None => raw,
@@ -433,6 +467,7 @@ impl<'a> Reader<'a, '_> {
                         self.msg("Invalid color number for transparent color.");
                         return Err(-1);
                     }
+                    self.ctx.header_transparent = gif_colnum;
                     if let Some(name) = usize::try_from(gif_colnum).ok().and_then(|i| FIG_COLOR_NAMES.get(i)) {
                         self.ctx.gif_transparent = (*name).to_string();
                     }
@@ -512,8 +547,9 @@ impl<'a> Reader<'a, '_> {
     fn read_object(&mut self, object: i32, line: &'a [u8], com: &mut Compound) -> R<bool> {
         match object {
             OBJ_POLYLINE => {
-                let l = self.read_lineobject(line)?;
-                com.lines.push(l);
+                if let Some(l) = self.read_lineobject(line)? {
+                    com.lines.push(l);
+                }
             }
             OBJ_SPLINE => match self.read_splineobject(line)? {
                 SplineOrLine::Line(l) => com.lines.push(l),
@@ -628,6 +664,18 @@ impl<'a> Reader<'a, '_> {
 
     /// `note_fill`.
     fn note_fill(&mut self, fill: i32, color: &mut i32) {
+        if fill == UNFILLED && self.ctx.editing {
+            // An editor keeps the fill colour of an unfilled object too,
+            // renumbered like the others (quietly: nothing draws it).
+            if *color >= NUM_STD_COLS as i32 {
+                *color = match self.ctx.user_col_indx.iter().position(|&c| c == *color) {
+                    Some(i) => NUM_STD_COLS as i32 + i as i32,
+                    None => DEFAULT,
+                };
+            } else if *color < DEFAULT {
+                *color = DEFAULT;
+            }
+        }
         if fill != UNFILLED {
             self.fix_and_note_color(color);
             if fill >= NUMSHADES + NUMTINTS {
@@ -756,6 +804,9 @@ impl<'a> Reader<'a, '_> {
         }
         a.thickness = a.thickness.saturating_mul(self.thick_factor());
         a.fill_style = self.fill_convert(a.fill_style);
+        if self.ctx.editing {
+            self.xfig_fix(&mut a.depth, &mut a.fill_style, a.fill_color);
+        }
         let coord = |v: f64| v.is_finite() && v >= f64::from(i32::MIN) && v <= f64::from(i32::MAX);
         if !(T_OPEN_ARC..=T_PIE_WEDGE_ARC).contains(&a.type_)
             || common_invalid(a.style, a.thickness, a.depth, a.fill_style, a.style_val)
@@ -767,7 +818,10 @@ impl<'a> Reader<'a, '_> {
             self.invalid("arc");
             return Err(-1);
         }
-        self.sanitize_arc(&mut a)?;
+        // xfig keeps an arc as written.
+        if !self.ctx.editing {
+            self.sanitize_arc(&mut a)?;
+        }
         let mut pen = a.pen_color;
         self.fix_and_note_color(&mut pen);
         a.pen_color = pen;
@@ -863,9 +917,17 @@ impl<'a> Reader<'a, '_> {
         e.pen_color = pen;
         e.thickness = e.thickness.saturating_mul(self.thick_factor());
         e.fill_style = self.fill_convert(e.fill_style);
+        if self.ctx.editing {
+            self.xfig_fix(&mut e.depth, &mut e.fill_style, e.fill_color);
+        }
         e.radiuses.x = e.radiuses.x.saturating_abs();
         e.radiuses.y = e.radiuses.y.saturating_abs();
-        if ellipse_invalid(&e) {
+        if self.ctx.editing {
+            // xfig reads an ellipse of radius 0 and turns the angle into
+            // 0 to 2 pi (`fix_angle`).
+            e.angle = fix_angle(e.angle);
+        }
+        if ellipse_invalid(&e, self.ctx.editing) {
             self.invalid("ellipse");
             return Err(-1);
         }
@@ -883,6 +945,16 @@ impl<'a> Reader<'a, '_> {
     /// counter (which the messages print).
     fn sanitize_lineobject(&mut self, l: &mut Line, mut num_points: i64) -> R<()> {
         let line_no = self.line_no;
+        if self.ctx.editing {
+            // xfig keeps what is written: open polygons, distorted boxes
+            // and the fill of short polylines stay; only the arrowheads of
+            // a single point go.
+            if l.points.len() < 2 {
+                l.for_arrow = None;
+                l.back_arrow = None;
+            }
+            return Ok(());
+        }
         if matches!(l.type_, T_BOX | T_POLYGON | T_ARC_BOX | T_PIC_BOX) {
             let name = obj_name(l.type_);
             if let (Some(&first), Some(&last)) = (l.points.first(), l.points.last()) {
@@ -975,7 +1047,7 @@ impl<'a> Reader<'a, '_> {
     }
 
     /// `read_lineobject`.
-    fn read_lineobject(&mut self, line: &[u8]) -> R<Line> {
+    fn read_lineobject(&mut self, line: &[u8]) -> R<Option<Line>> {
         let mut l = Line::default();
         let mut sc = Scan::new(line);
         let _ = sc.int(); // the object code, already known
@@ -1023,6 +1095,9 @@ impl<'a> Reader<'a, '_> {
         l.radius = l.radius.saturating_mul(tf);
         l.thickness = l.thickness.saturating_mul(tf);
         l.fill_style = self.fill_convert(l.fill_style);
+        if self.ctx.editing {
+            self.xfig_fix(&mut l.depth, &mut l.fill_style, l.fill_color);
+        }
         if !(T_POLYLINE..=T_PIC_BOX).contains(&l.type_)
             || common_invalid(l.style, l.thickness, l.depth, l.fill_style, l.style_val)
             || !(0..=2).contains(&l.cap_style)
@@ -1099,10 +1174,26 @@ impl<'a> Reader<'a, '_> {
             MAX_V2POINTS - npts - num_ident
         };
 
+        if self.ctx.editing {
+            // xfig deletes short boxes, pictures and polygons (f_read.c).
+            let n = l.points.len();
+            let short = (n < 5 && matches!(l.type_, T_BOX | T_ARC_BOX | T_PIC_BOX)) || (n < 3 && l.type_ == T_POLYGON);
+            if short {
+                let what = match l.type_ {
+                    T_POLYGON => "polygon containing fewer than 3 points",
+                    T_BOX => "zero-size box",
+                    T_ARC_BOX => "zero-size arcbox",
+                    _ => "zero-size picture",
+                };
+                self.msg(format!("Deleting {what} at line {}", self.line_no));
+                self.inp.skip_line();
+                return Ok(None);
+            }
+        }
         self.sanitize_lineobject(&mut l, num_points)?;
         l.comments = self.attach_comments();
         self.inp.skip_line();
-        Ok(l)
+        Ok(Some(l))
     }
 
     /// `read_splineobject`. Fig 3.2 splines come back as lines.
@@ -1135,6 +1226,9 @@ impl<'a> Reader<'a, '_> {
         }
         s.thickness = s.thickness.saturating_mul(self.thick_factor());
         s.fill_style = self.fill_convert(s.fill_style);
+        if self.ctx.editing {
+            self.xfig_fix(&mut s.depth, &mut s.fill_style, s.fill_color);
+        }
         if !(T_OPEN_APPROX..=T_CLOSED_XSPLINE).contains(&s.type_)
             || common_invalid(s.style, s.thickness, s.depth, s.fill_style, s.style_val)
             || !(0..=2).contains(&s.cap_style)
@@ -1214,6 +1308,10 @@ impl<'a> Reader<'a, '_> {
                 self.incomplete("spline");
                 return Err(-1);
             }
+            if self.ctx.editing {
+                self.inp.skip_line();
+                return Ok(SplineOrLine::Spline(s));
+            }
             let line = spline_to_line(self.ctx, &s);
             self.inp.skip_line();
             return match line {
@@ -1271,7 +1369,14 @@ impl<'a> Reader<'a, '_> {
         (t.type_, t.color, t.depth, t.pen, t.font) = (f.i(0), f.i(1), f.i(2), f.i(3), f.i(4));
         (t.size, t.angle, t.flags, t.height, t.length) = (f.f(5), f.f(6), f.i(7), f.f(8), f.f(9));
         (t.base_x, t.base_y) = (f.i(10), f.i(11));
-        sc.skip_ws();
+        if self.ctx.editing {
+            // xfig skips the first blank only.
+            if sc.peek() == Some(b' ') {
+                sc.lit(b' ');
+            }
+        } else {
+            sc.skip_ws();
+        }
         let start = sc.rest();
         let v30 = self.ctx.v30_flag;
 
@@ -1283,9 +1388,16 @@ impl<'a> Reader<'a, '_> {
                 next.push(b'\n');
                 while let Some(raw) = self.inp.getline() {
                     self.line_no = self.line_no.saturating_add(1);
-                    if raw.contains(&0) {
-                        return Err(self.nul_in_line());
-                    }
+                    let raw = match raw.iter().position(|&c| c == 0) {
+                        Some(nul) if self.ctx.editing => {
+                            let mut cut = raw.get(..nul).unwrap_or_default().to_vec();
+                            cut.push(b'\n');
+                            std::borrow::Cow::Owned(cut)
+                        }
+                        Some(_) => return Err(self.nul_in_line()),
+                        None => std::borrow::Cow::Borrowed(raw),
+                    };
+                    let raw = raw.as_ref();
                     if let Some(end) = find_end(raw, v30) {
                         next.extend_from_slice(raw.get(..end).unwrap_or_default());
                         break;
@@ -1355,6 +1467,27 @@ impl<'a> Reader<'a, '_> {
         if v2 && !v21 && !t.special_text() {
             t.flags = base(t.flags) | PSFONT_TEXT;
         }
+        if self.ctx.editing {
+            // As f_read.c: the angle 0 to 2 pi, an unknown font or
+            // justification set to the default, a negative extent to 0.
+            t.angle = fix_angle(t.angle);
+            let line_no = self.line_no;
+            if t.font < DEFAULT || t.font > MAX_PSFONT {
+                self.msg(format!(
+                    "Invalid text font ({}) at line {line_no}, setting to DEFAULT.",
+                    t.font
+                ));
+                t.font = DEFAULT;
+            }
+            if !(T_LEFT_JUSTIFIED..=T_RIGHT_JUSTIFIED).contains(&t.type_) {
+                self.msg(format!(
+                    "Invalid text justification at line {line_no}, setting to LEFT."
+                ));
+                t.type_ = T_LEFT_JUSTIFIED;
+            }
+            t.height = t.height.max(0.0);
+            t.length = t.length.max(0.0);
+        }
         if text_invalid(&t) {
             self.invalid("text");
             return Err(-1);
@@ -1385,13 +1518,22 @@ fn is_windows_absolute(name: &str) -> bool {
 }
 
 /// `INVALID_ELLIPSE` (a non-finite angle too).
-fn ellipse_invalid(e: &Ellipse) -> bool {
+fn ellipse_invalid(e: &Ellipse, editing: bool) -> bool {
     !(T_ELLIPSE_BY_RAD..=T_CIRCLE_BY_DIA).contains(&e.type_)
         || common_invalid(e.style, e.thickness, e.depth, e.fill_style, e.style_val)
         || (e.direction != 1 && e.direction != 0)
-        || e.radiuses.x == 0
-        || e.radiuses.y == 0
+        || (!editing && (e.radiuses.x == 0 || e.radiuses.y == 0))
         || !(-7.0..=7.0).contains(&e.angle)
+}
+
+/// xfig's `fix_angle`: an angle in radians turned into 0 to 2 pi (0 for a
+/// non-finite one).
+fn fix_angle(a: f64) -> f64 {
+    if a.is_finite() {
+        a.rem_euclid(std::f64::consts::TAU)
+    } else {
+        0.0
+    }
 }
 
 /// `INVALID_TEXT` (non-finite sizes and angles too).
