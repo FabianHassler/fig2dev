@@ -7,7 +7,7 @@
 // LICENSE-xfig).
 
 use crate::object::{
-    Control, Line, Point, Spline, S_SPLINE_ANGULAR, S_SPLINE_APPROX, S_SPLINE_INTERP, T_POLYGON, T_POLYLINE,
+    Compound, Control, Line, Point, Spline, S_SPLINE_ANGULAR, S_SPLINE_APPROX, S_SPLINE_INTERP, T_POLYGON, T_POLYLINE,
 };
 use crate::Ctx;
 
@@ -383,6 +383,38 @@ pub fn create_line_with_spline(ctx: &mut Ctx, s: &Spline) -> Option<Line> {
     })
 }
 
+/// A figure built in memory as the drivers expect it: every spline of
+/// `com` and of its compounds becomes a line (a polyline or polygon) as the
+/// reader does for a Fig 3.2 file (`ctx.v32_flag`; otherwise only X-splines,
+/// the others keep their controls), appended after the compound's lines. A spline that can't be converted
+/// (coincident points, non-finite shape factors, too few points) is
+/// dropped, with the reader's message in `ctx.messages`.
+pub fn splines_to_lines(ctx: &mut Ctx, com: &Compound) -> Compound {
+    let mut out = Compound {
+        compounds: com.compounds.iter().map(|c| splines_to_lines(ctx, c)).collect(),
+        splines: Vec::new(),
+        ..com.clone()
+    };
+    for s in &com.splines {
+        if !(s.x_spline() || ctx.v32_flag) {
+            out.splines.push(s.clone());
+            continue;
+        }
+        let bad = s.points.iter().all(|p| Some(p) == s.points.first())
+            || s.controls.len() != s.points.len()
+            || s.controls.iter().any(|c| !c.s.is_finite());
+        if bad {
+            ctx.warn("Invalid spline with only co-incident points or shape factors, dropped.");
+            continue;
+        }
+        match create_line_with_spline(ctx, s) {
+            Some(l) => out.lines.push(l),
+            None => ctx.warn("Unable to convert spline to line, dropped."),
+        }
+    }
+    out
+}
+
 /// The controls `make_control_factors` gives a spline: the shape factor
 /// of an approximated (1) or interpolated (−1) spline at every point, the
 /// ends of an open spline angular (0).
@@ -410,6 +442,38 @@ pub fn make_control_factors(s: &mut Spline) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn splines_of_a_figure_in_memory_become_lines() {
+        use crate::object::{Compound, Control, Point, Spline};
+        let mut ctx = Ctx::for_figure(1200.0, false, &[(40, 1, 2, 3)]);
+        assert_eq!((ctx.thick_scale, ctx.user_col_indx.clone()), (15.0, vec![40]));
+        let s = Spline {
+            type_: 4,
+            points: vec![Point::new(0, 0), Point::new(600, 300), Point::new(1200, 0)],
+            controls: vec![
+                Control {
+                    s: 0.0,
+                    ..Control::default()
+                },
+                Control {
+                    s: 1.0,
+                    ..Control::default()
+                },
+                Control {
+                    s: 0.0,
+                    ..Control::default()
+                },
+            ],
+            ..Spline::default()
+        };
+        let com = Compound {
+            splines: vec![s],
+            ..Compound::default()
+        };
+        let out = super::splines_to_lines(&mut ctx, &com);
+        assert!(out.splines.is_empty() && out.lines.len() == 1 && out.lines[0].points.len() > 3);
+    }
+
     use super::*;
     use crate::object::{Arrow, T_CLOSED_XSPLINE, T_OPEN_XSPLINE};
 

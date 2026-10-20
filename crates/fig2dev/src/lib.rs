@@ -15,6 +15,8 @@
 //! port returns `Err`.
 
 pub mod bound;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod cli;
 pub mod drivers;
 pub mod gendev;
 pub mod languages;
@@ -25,7 +27,7 @@ pub mod scene;
 pub mod trans_spline;
 pub mod util;
 
-pub use gendev::{convert, convert_partial, Ctx, Driver, Status};
+pub use gendev::{convert, convert_partial, Ctx, Driver, Figure, Status};
 
 /// The output file (`tfp`): bytes, since some languages are binary or use
 /// an 8-bit encoding.

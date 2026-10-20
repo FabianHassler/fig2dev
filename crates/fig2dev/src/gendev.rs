@@ -241,6 +241,39 @@ impl Default for Ctx {
 }
 
 impl Ctx {
+    /// The context of a figure built in memory (not read from a file), as
+    /// the reader leaves it for a Fig 3.2 file of resolution `ppi`:
+    /// `thick_scale` (thicknesses and arrowhead thicknesses in the objects
+    /// are in file units times it), `metric`, and the user colours
+    /// `(file number, r, g, b)` in definition order (objects use
+    /// `NUM_STD_COLS` + the index in this list). Everything else is as
+    /// [`Ctx::default`]; set the header values (`landscape`, `center`,
+    /// `papersize`, `mag`, `fontmag`, `multi_page`, `gif_transparent`) and
+    /// the options afterwards. At most [`MAX_USR_COLS`] colours are taken.
+    pub fn for_figure(ppi: f64, metric: bool, colors: &[(i32, u8, u8, u8)]) -> Ctx {
+        let ppi = if ppi > 1.0 && ppi.is_finite() { ppi } else { 1200.0 };
+        let mut ctx = Ctx {
+            ppi,
+            thick_scale: (ppi / 80.0) as f32,
+            metric,
+            v2_flag: true,
+            v21_flag: true,
+            v30_flag: true,
+            v32_flag: true,
+            ..Ctx::default()
+        };
+        for (i, &(number, r, g, b)) in colors.iter().take(MAX_USR_COLS).enumerate() {
+            ctx.user_colors.push(UserColor {
+                c: NUM_STD_COLS as i32 + i as i32,
+                r: i32::from(r),
+                g: i32::from(g),
+                b: i32::from(b),
+            });
+            ctx.user_col_indx.push(number);
+        }
+        ctx
+    }
+
     /// A message on stderr (`fprintf(stderr, …)`, `put_msg`).
     pub fn warn(&mut self, msg: impl Into<String>) {
         let msg = msg.into();
@@ -843,5 +876,21 @@ mod grid_zero_tests {
         let mut ctx = Ctx::default();
         ctx.general_option('G', Some("1:0")).unwrap();
         assert!(ctx.messages.is_empty(), "{:?}", ctx.messages);
+    }
+}
+
+/// A figure in memory: the objects and the context they were made for
+/// (what the reader returns, as one value).
+#[derive(Clone, Debug, Default)]
+pub struct Figure {
+    pub ctx: Ctx,
+    pub objects: crate::object::Compound,
+}
+
+impl Figure {
+    /// [`convert`] the figure with `dev` (the options already given to
+    /// `ctx`).
+    pub fn convert(&mut self, dev: &mut dyn Driver) -> Result<Status, String> {
+        convert(&mut self.ctx, dev, &self.objects)
     }
 }
