@@ -15,9 +15,31 @@ It was developed as part of [RustFig](https://github.com/FabianHassler/rustfig),
 
 The library crate and the program share the name `fig2dev`; the program lives in the package `fig2dev-cli` with `[[bin]] name = "fig2dev"`, so `cargo install --path apps/fig2dev` installs `fig2dev` and `fig2dev = { git = ... }` gives the library.
 
+## Installation
+
+You need Rust 1.89 or newer from [rustup](https://rustup.rs). There are no C libraries to install, and the crates are not on crates.io.
+
+Straight from GitHub, a given release:
+
+```
+cargo install --locked --git https://github.com/FabianHassler/fig2dev --tag v0.4.0 fig2dev-cli
+```
+
+Or from a clone:
+
+```
+git clone https://github.com/FabianHassler/fig2dev
+cd fig2dev
+cargo install --locked --path apps/fig2dev
+```
+
+Either way the program is installed as `fig2dev` in `~/.cargo/bin` (on Windows `%USERPROFILE%\.cargo\bin`), which rustup puts on your `PATH`. If the C fig2dev is installed too (for example from Homebrew or a Linux package), the one that comes first on `PATH` runs; `which -a fig2dev` lists both. Remove it again with `cargo uninstall fig2dev-cli`.
+
+To embed the craft-fonts collection (see below), set `CRAFT_FONTS_DIR=/abs/path/to/craft-fonts` for the `cargo install` command.
+
 ## Languages and status
 
-Every fig2dev language is ported except `sld` (slides): PostScript, EPS, PDF, SVG, PNG, GIF, JPEG, TIFF, PPM, PCX, XBM, XPM, LaTeX picture, epic, eepic, eepicemu, PiCTeX, TeXtyl, tpic, pic, pstex, pdftex, pspdftex, pict2e, TikZ, PSTricks, LaTeX box, CGM, HPGL, DXF, MetaPost, METAFONT, ge, image map, Gerber, shape, EMF, Tk and Perl-Tk. Input encodings (`-E`) include UTF-8, ISO-8859-N, KOI8, CP125x, Mac and CJK, through `encoding_rs`.
+Every fig2dev language is ported: PostScript, EPS, PDF, SVG, PNG, GIF, JPEG, TIFF, PPM, PCX, XBM, XPM, LaTeX picture, epic, eepic, eepicemu, PiCTeX, TeXtyl, tpic, pic, pstex, pdftex, pspdftex, pict2e, TikZ, PSTricks, LaTeX box, CGM, HPGL, DXF, MetaPost, METAFONT, ge, image map, Gerber, shape, EMF, Tk, Perl-Tk and AutoCAD slides (`sld`). Input encodings (`-E`) include UTF-8, ISO-8859-N, KOI8, CP125x, Mac and CJK, through `encoding_rs`.
 
 Against fig2dev 3.2.9a (C):
 
