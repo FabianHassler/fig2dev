@@ -130,7 +130,7 @@ fn obj_name(type_: i32) -> &'static str {
 }
 
 /// `COMMON_PROPERTIES`, true if invalid; a non-finite style value too.
-fn common_invalid(style: i32, thickness: i32, depth: i32, fill_style: i32, style_val: f64) -> bool {
+pub fn common_invalid(style: i32, thickness: i32, depth: i32, fill_style: i32, style_val: f64) -> bool {
     !(SOLID_LINE..=DASH_3_DOTS_LINE).contains(&style)
         || thickness < 0
         || !(0..=999).contains(&depth)
@@ -138,6 +138,196 @@ fn common_invalid(style: i32, thickness: i32, depth: i32, fill_style: i32, style
         || style_val.is_nan()
         || style_val < 0.0
         || style_val.is_infinite()
+}
+
+/// Why `sanitize_arc` rejects an arc.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArcFault {
+    /// The radius is smaller than one Fig unit.
+    SmallRadius,
+    /// The end point is the centre.
+    EndAtCenter,
+}
+
+/// `sanitize_arc` (the check of arcs that are read): reject an arc of radius
+/// zero; move the last point onto the circle through the first. For
+/// objects built in memory, so that they are what the reader would return.
+pub fn repair_arc(a: &mut Arc) -> Result<(), ArcFault> {
+    let p0 = a.point[0];
+    let (cx, cy) = (a.center.x, a.center.y);
+    let (x0, y0) = (f64::from(p0.x), f64::from(p0.y));
+    if x0 - 1.0 < cx && x0 + 1.0 > cx && y0 - 1.0 < cy && y0 + 1.0 > cy {
+        return Err(ArcFault::SmallRadius);
+    }
+    let p2 = a.point[2];
+    if p2.x == crate::round(cx) && p2.y == crate::round(cy) {
+        return Err(ArcFault::EndAtCenter);
+    }
+    let (x2, y2) = (f64::from(p2.x), f64::from(p2.y));
+    let r = (x0 - cx).hypot(y0 - cy);
+    let l = (x2 - cx).hypot(y2 - cy);
+    if l < r - 1.0 || l > r + 1.0 {
+        let fac = r / l;
+        a.point[2] = Point::new(crate::round(cx + fac * (x2 - cx)), crate::round(cy + fac * (y2 - cy)));
+    }
+    Ok(())
+}
+
+/// Whether the reader rejects an arc's fields (`read_arcobject`).
+pub fn arc_invalid(a: &Arc) -> bool {
+    let coord = |v: f64| v.is_finite() && v >= f64::from(i32::MIN) && v <= f64::from(i32::MAX);
+    !(T_OPEN_ARC..=T_PIE_WEDGE_ARC).contains(&a.type_)
+        || common_invalid(a.style, a.thickness, a.depth, a.fill_style, a.style_val)
+        || !(0..=2).contains(&a.cap_style)
+        || !coord(a.center.x)
+        || !coord(a.center.y)
+        || (a.direction != 0 && a.direction != 1)
+}
+
+/// Whether the reader rejects a line's fields (`read_lineobject`).
+pub fn line_invalid(l: &Line) -> bool {
+    !(T_POLYLINE..=T_PIC_BOX).contains(&l.type_)
+        || common_invalid(l.style, l.thickness, l.depth, l.fill_style, l.style_val)
+        || !(0..=2).contains(&l.cap_style)
+        || !(0..=2).contains(&l.join_style)
+        || (l.type_ == T_ARC_BOX && l.radius < 0)
+}
+
+/// Whether the reader rejects a spline's fields (`read_splineobject`).
+pub fn spline_invalid(s: &Spline) -> bool {
+    !(T_OPEN_APPROX..=T_CLOSED_XSPLINE).contains(&s.type_)
+        || common_invalid(s.style, s.thickness, s.depth, s.fill_style, s.style_val)
+        || !(0..=2).contains(&s.cap_style)
+}
+
+/// What `sanitize_lineobject` says about a line it changed (the reader
+/// prints these, with the line number).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LineNote {
+    /// An open box or polygon was closed.
+    Open,
+    /// A box or polygon of this many points (fewer than four, counting the
+    /// closing one) became a polyline.
+    ToPolyline(i64),
+    /// A box with this number of corners (other than four) became a polygon.
+    ToPolygonCorners(i64),
+    /// A box that is not a rectangle became a polygon.
+    ToPolygonDistorted,
+    /// A single point lost its forward arrow.
+    ForwardArrowRemoved,
+    /// A single point lost its backward arrow.
+    BackwardArrowRemoved,
+}
+
+/// Why `sanitize_lineobject` rejects a line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LineFault {
+    /// An arc-box or picture box with this many corners (other than four).
+    Corners(i64),
+    /// An arc-box or picture box that is not a rectangle.
+    Distorted,
+}
+
+/// `sanitize_lineobject` (the repairs of a line that is read, not the
+/// editor's): close open boxes and polygons, reject malformed arc-boxes and
+/// picture boxes, turn degenerate boxes and polygons into polylines or
+/// polygons, unfill short polylines (silently) and take the arrowheads off
+/// a single point. `num_points` is the C counter (the points left after
+/// consecutive equal ones are dropped). Returns what it said.
+pub fn repair_line(l: &mut Line, mut num_points: i64) -> Result<Vec<LineNote>, LineFault> {
+    let mut notes = Vec::new();
+    if matches!(l.type_, T_BOX | T_POLYGON | T_ARC_BOX | T_PIC_BOX) {
+        if let (Some(&first), Some(&last)) = (l.points.first(), l.points.last()) {
+            if first != last {
+                notes.push(LineNote::Open);
+                l.points.insert(0, last);
+                num_points += 1;
+            }
+        }
+        if l.type_ == T_ARC_BOX || l.type_ == T_PIC_BOX {
+            if num_points != 5 {
+                return Err(LineFault::Corners(num_points - 1));
+            }
+            if !is_rectangle(&l.points) {
+                return Err(LineFault::Distorted);
+            }
+        } else if num_points < 4 {
+            notes.push(LineNote::ToPolyline(num_points));
+            l.type_ = T_POLYLINE;
+            if num_points == 2 {
+                l.points.truncate(1);
+            } else if num_points == 3 {
+                l.points.truncate(2);
+            }
+        } else if l.type_ == T_BOX {
+            if num_points != 5 {
+                notes.push(LineNote::ToPolygonCorners(num_points - 1));
+                l.type_ = T_POLYGON;
+            } else if !is_rectangle(&l.points) {
+                notes.push(LineNote::ToPolygonDistorted);
+                l.type_ = T_POLYGON;
+            }
+        }
+    }
+    if l.type_ == T_POLYLINE && l.points.len() < 3 {
+        l.fill_style = UNFILLED;
+        if l.points.len() < 2 {
+            if l.for_arrow.take().is_some() {
+                notes.push(LineNote::ForwardArrowRemoved);
+            }
+            if l.back_arrow.take().is_some() {
+                notes.push(LineNote::BackwardArrowRemoved);
+            }
+        }
+    }
+    Ok(notes)
+}
+
+/// Why `make_arrow` drops an arrowhead (it says so).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArrowFault {
+    /// "Invalid arrow".
+    Invalid,
+    /// "Zero-width arrow ... ignored".
+    ZeroWidth,
+}
+
+/// Whether `make_arrow` would drop an arrowhead.
+pub fn arrow_fault(type_: i32, style: i32, thickness: f64, wid: f64, ht: f64) -> Option<ArrowFault> {
+    let narrows = NUMARROWS as i32;
+    if !(0..=1).contains(&style)
+        || type_ < 0
+        || type_ > narrows
+        || (type_ + 1) * 2 > narrows
+        || !(thickness.is_finite() && wid.is_finite() && ht.is_finite())
+    {
+        return Some(ArrowFault::Invalid);
+    }
+    (wid < 1e-2 && type_ != 5 && type_ != 6).then_some(ArrowFault::ZeroWidth)
+}
+
+/// What the reader does to a text's size: with a font size requested
+/// (`-s`, in `Ctx::font_size`, already multiplied by `-m`), the length and
+/// height are scaled to it and it becomes the size; a size of zero or less
+/// becomes the default.
+pub fn apply_font_size(font_size: f64, t: &mut Text) {
+    if font_size != 0.0 {
+        if t.size > 0.0 {
+            t.length = t.length * font_size / t.size;
+            t.height = t.height * font_size / t.size;
+        }
+        t.size = font_size;
+    }
+    if t.size <= 0.0 {
+        t.size = DEFAULT_FONT_SIZE;
+    }
+}
+
+/// A text as the reader gets it from the first line of its object: the
+/// blanks after the fields are dropped (`sscanf` skips all white space of
+/// the line; a newline ends the line, so it stays).
+pub fn trim_text_start(text: &str) -> &str {
+    text.trim_start_matches([' ', '\t', '\x0b', '\x0c', '\r'])
 }
 
 /// Whether the four points from `p` describe a rectangle with its edges
@@ -693,19 +883,16 @@ impl<'a> Reader<'a, '_> {
     /// `make_arrow`: `None` (with a message) for an invalid arrowhead.
     fn make_arrow(&mut self, type_: i32, style: i32, thickness: f64, wid: f64, ht: f64) -> Option<Arrow> {
         let line_no = self.line_no;
-        let narrows = NUMARROWS as i32;
-        if !(0..=1).contains(&style)
-            || type_ < 0
-            || type_ > narrows
-            || (type_ + 1) * 2 > narrows
-            || !(thickness.is_finite() && wid.is_finite() && ht.is_finite())
-        {
-            self.msg(format!("Invalid arrow at line {line_no}."));
-            return None;
-        }
-        if wid < 1e-2 && type_ != 5 && type_ != 6 {
-            self.msg(format!("Zero-width arrow at line {line_no} ignored."));
-            return None;
+        match arrow_fault(type_, style, thickness, wid, ht) {
+            Some(ArrowFault::Invalid) => {
+                self.msg(format!("Invalid arrow at line {line_no}."));
+                return None;
+            }
+            Some(ArrowFault::ZeroWidth) => {
+                self.msg(format!("Zero-width arrow at line {line_no} ignored."));
+                return None;
+            }
+            None => {}
         }
         self.ctx.arrows_used = true;
         if let Some(u) = usize::try_from(2 * type_ + style)
@@ -737,34 +924,24 @@ impl<'a> Reader<'a, '_> {
         Ok(self.make_arrow(f.i(0), f.i(1), f.f(2), f.f(3), f.f(4)))
     }
 
-    /// `sanitize_arc`: reject an arc of radius zero; move the last point
-    /// onto the circle through the first.
+    /// `sanitize_arc` ([`repair_arc`]) with fig2dev's messages.
     fn sanitize_arc(&mut self, a: &mut Arc) -> R<()> {
         let line_no = self.line_no;
-        let p0 = a.point[0];
-        let (cx, cy) = (a.center.x, a.center.y);
-        let (x0, y0) = (f64::from(p0.x), f64::from(p0.y));
-        if x0 - 1.0 < cx && x0 + 1.0 > cx && y0 - 1.0 < cy && y0 + 1.0 > cy {
-            self.msg(format!(
-                "Invalid arc object at line {line_no}: arc radius smaller than one Fig unit."
-            ));
-            return Err(-1);
+        match repair_arc(a) {
+            Ok(()) => Ok(()),
+            Err(ArcFault::SmallRadius) => {
+                self.msg(format!(
+                    "Invalid arc object at line {line_no}: arc radius smaller than one Fig unit."
+                ));
+                Err(-1)
+            }
+            Err(ArcFault::EndAtCenter) => {
+                self.msg(format!(
+                    "Invalid arc object at line {line_no}: the end point co-incides with the center of the arc."
+                ));
+                Err(-1)
+            }
         }
-        let p2 = a.point[2];
-        if p2.x == crate::round(cx) && p2.y == crate::round(cy) {
-            self.msg(format!(
-                "Invalid arc object at line {line_no}: the end point co-incides with the center of the arc."
-            ));
-            return Err(-1);
-        }
-        let (x2, y2) = (f64::from(p2.x), f64::from(p2.y));
-        let r = (x0 - cx).hypot(y0 - cy);
-        let l = (x2 - cx).hypot(y2 - cy);
-        if l < r - 1.0 || l > r + 1.0 {
-            let fac = r / l;
-            a.point[2] = Point::new(crate::round(cx + fac * (x2 - cx)), crate::round(cy + fac * (y2 - cy)));
-        }
-        Ok(())
     }
 
     /// `read_arcobject`.
@@ -807,14 +984,7 @@ impl<'a> Reader<'a, '_> {
         if self.ctx.editing {
             self.xfig_fix(&mut a.depth, &mut a.fill_style, a.fill_color);
         }
-        let coord = |v: f64| v.is_finite() && v >= f64::from(i32::MIN) && v <= f64::from(i32::MAX);
-        if !(T_OPEN_ARC..=T_PIE_WEDGE_ARC).contains(&a.type_)
-            || common_invalid(a.style, a.thickness, a.depth, a.fill_style, a.style_val)
-            || !(0..=2).contains(&a.cap_style)
-            || !coord(a.center.x)
-            || !coord(a.center.y)
-            || (a.direction != 0 && a.direction != 1)
-        {
+        if arc_invalid(&a) {
             self.invalid("arc");
             return Err(-1);
         }
@@ -943,7 +1113,7 @@ impl<'a> Reader<'a, '_> {
     /// polygons into polylines or polygons, unfill short polylines and
     /// take the arrowheads off a single point. `num_points` is the C
     /// counter (which the messages print).
-    fn sanitize_lineobject(&mut self, l: &mut Line, mut num_points: i64) -> R<()> {
+    fn sanitize_lineobject(&mut self, l: &mut Line, num_points: i64) -> R<()> {
         let line_no = self.line_no;
         if self.ctx.editing {
             // xfig keeps what is written: open polygons, distorted boxes
@@ -955,64 +1125,40 @@ impl<'a> Reader<'a, '_> {
             }
             return Ok(());
         }
-        if matches!(l.type_, T_BOX | T_POLYGON | T_ARC_BOX | T_PIC_BOX) {
-            let name = obj_name(l.type_);
-            if let (Some(&first), Some(&last)) = (l.points.first(), l.points.last()) {
-                if first != last {
-                    self.msg(format!("An open {name} at line {line_no} - close it."));
-                    l.points.insert(0, last);
-                    num_points += 1;
+        let name = obj_name(l.type_);
+        match repair_line(l, num_points) {
+            Ok(notes) => {
+                for n in notes {
+                    match n {
+                        LineNote::Open => self.msg(format!("An open {name} at line {line_no} - close it.")),
+                        LineNote::ToPolyline(n) => self.msg(format!(
+                            "A {name} with {n} points at line {line_no} - convert to a polyline."
+                        )),
+                        LineNote::ToPolygonCorners(n) => self.msg(format!(
+                            "A rectangle with {n} corners at line {line_no} - convert to a polygon."
+                        )),
+                        LineNote::ToPolygonDistorted => self.msg(format!(
+                            "A distorted retangle at line {line_no} - convert to a polygon."
+                        )),
+                        LineNote::ForwardArrowRemoved => {
+                            self.msg("A single point with a forward arrow - remove the arrow.")
+                        }
+                        LineNote::BackwardArrowRemoved => {
+                            self.msg("A single point with a backward arrow - remove the arrow.")
+                        }
+                    }
                 }
+                Ok(())
             }
-            if l.type_ == T_ARC_BOX || l.type_ == T_PIC_BOX {
-                if num_points != 5 {
-                    self.msg(format!(
-                        "A malformed {name} at line {line_no} - it has {} corners.",
-                        num_points - 1
-                    ));
-                    return Err(-1);
-                }
-                if !is_rectangle(&l.points) {
-                    self.msg(format!("A distorted or inclined {name} at line {line_no}."));
-                    return Err(-1);
-                }
-            } else if num_points < 4 {
-                self.msg(format!(
-                    "A {name} with {num_points} points at line {line_no} - convert to a polyline."
-                ));
-                l.type_ = T_POLYLINE;
-                if num_points == 2 {
-                    l.points.truncate(1);
-                } else if num_points == 3 {
-                    l.points.truncate(2);
-                }
-            } else if l.type_ == T_BOX {
-                if num_points != 5 {
-                    self.msg(format!(
-                        "A rectangle with {} corners at line {line_no} - convert to a polygon.",
-                        num_points - 1
-                    ));
-                    l.type_ = T_POLYGON;
-                } else if !is_rectangle(&l.points) {
-                    self.msg(format!(
-                        "A distorted retangle at line {line_no} - convert to a polygon."
-                    ));
-                    l.type_ = T_POLYGON;
-                }
+            Err(LineFault::Corners(n)) => {
+                self.msg(format!("A malformed {name} at line {line_no} - it has {n} corners."));
+                Err(-1)
+            }
+            Err(LineFault::Distorted) => {
+                self.msg(format!("A distorted or inclined {name} at line {line_no}."));
+                Err(-1)
             }
         }
-        if l.type_ == T_POLYLINE && l.points.len() < 3 {
-            l.fill_style = UNFILLED;
-            if l.points.len() < 2 {
-                if l.for_arrow.take().is_some() {
-                    self.msg("A single point with a forward arrow - remove the arrow.");
-                }
-                if l.back_arrow.take().is_some() {
-                    self.msg("A single point with a backward arrow - remove the arrow.");
-                }
-            }
-        }
-        Ok(())
     }
 
     /// The name of a picture file: relative to the Fig file's directory
@@ -1098,12 +1244,7 @@ impl<'a> Reader<'a, '_> {
         if self.ctx.editing {
             self.xfig_fix(&mut l.depth, &mut l.fill_style, l.fill_color);
         }
-        if !(T_POLYLINE..=T_PIC_BOX).contains(&l.type_)
-            || common_invalid(l.style, l.thickness, l.depth, l.fill_style, l.style_val)
-            || !(0..=2).contains(&l.cap_style)
-            || !(0..=2).contains(&l.join_style)
-            || (l.type_ == T_ARC_BOX && l.radius < 0)
-        {
+        if line_invalid(&l) {
             self.invalid("line");
             return Err(-1);
         }
@@ -1229,10 +1370,7 @@ impl<'a> Reader<'a, '_> {
         if self.ctx.editing {
             self.xfig_fix(&mut s.depth, &mut s.fill_style, s.fill_color);
         }
-        if !(T_OPEN_APPROX..=T_CLOSED_XSPLINE).contains(&s.type_)
-            || common_invalid(s.style, s.thickness, s.depth, s.fill_style, s.style_val)
-            || !(0..=2).contains(&s.cap_style)
-        {
+        if spline_invalid(&s) {
             self.invalid("spline");
             return Err(-1);
         }
@@ -1448,17 +1586,7 @@ impl<'a> Reader<'a, '_> {
         t.cstring = self.decode(&text);
         t.raw = text;
 
-        if self.ctx.font_size != 0.0 {
-            // Scale length and height to the requested font size.
-            if t.size > 0.0 {
-                t.length = t.length * self.ctx.font_size / t.size;
-                t.height = t.height * self.ctx.font_size / t.size;
-            }
-            t.size = self.ctx.font_size;
-        }
-        if t.size <= 0.0 {
-            t.size = DEFAULT_FONT_SIZE;
-        }
+        apply_font_size(self.ctx.font_size, &mut t);
         let (v2, v21) = (self.ctx.v2_flag, self.ctx.v21_flag);
         let base = |flags: i32| if flags != DEFAULT { flags } else { 0 };
         if !v21 && (t.font == 0 || t.font == DEFAULT) {
@@ -1518,7 +1646,7 @@ fn is_windows_absolute(name: &str) -> bool {
 }
 
 /// `INVALID_ELLIPSE` (a non-finite angle too).
-fn ellipse_invalid(e: &Ellipse, editing: bool) -> bool {
+pub fn ellipse_invalid(e: &Ellipse, editing: bool) -> bool {
     !(T_ELLIPSE_BY_RAD..=T_CIRCLE_BY_DIA).contains(&e.type_)
         || common_invalid(e.style, e.thickness, e.depth, e.fill_style, e.style_val)
         || (e.direction != 1 && e.direction != 0)
@@ -1537,7 +1665,7 @@ fn fix_angle(a: f64) -> f64 {
 }
 
 /// `INVALID_TEXT` (non-finite sizes and angles too).
-fn text_invalid(t: &Text) -> bool {
+pub fn text_invalid(t: &Text) -> bool {
     !(T_LEFT_JUSTIFIED..=T_RIGHT_JUSTIFIED).contains(&t.type_)
         || t.font < DEFAULT
         || t.font > MAX_PSFONT
