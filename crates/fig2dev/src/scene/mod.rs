@@ -29,7 +29,7 @@ pub mod svg;
 mod textcache;
 
 pub use build::build;
-pub use output::{export_bounds, write, EmbeddedEps, EmbeddedJpeg, ExportFormat, Page};
+pub use output::{export_bounds, write, EmbeddedEps, EmbeddedJpeg, ExportFormat, Page, CREATOR};
 pub use page::{PageInput, PageLayout};
 
 use figbase::color::{area_fill_color, Rgb};
@@ -115,6 +115,17 @@ pub enum Prim {
         /// A JPEG file the PostScript writers pass through instead of the
         /// pixels: its name in the export's embedded pictures.
         dct: Option<String>,
+    },
+    /// A PDF page as a vector picture (a PDF file, or an EPS file ghostscript
+    /// turned into one): the PDF writer embeds it, the bitmap writers and
+    /// the canvas render it. The PostScript writers get it as an
+    /// [`EmbeddedEps`] converted by `util::pdfps` instead.
+    PdfPicture {
+        /// Top-left, top-right, bottom-right, bottom-left of the picture box.
+        corners: [Point; 4],
+        /// Transposed (Fig "flipped" pictures).
+        flipped: bool,
+        pdf: Arc<crate::util::pdfpic::PdfPicture>,
     },
     /// A picture without pixels (an EPS or PDF file, or one that could
     /// not be read). The placeholder drawn for it follows as the next
@@ -212,7 +223,7 @@ impl Scene {
                     }
                 }
                 Prim::Text(t) => t.color = f(t.color),
-                Prim::Image { .. } | Prim::PictureRef { .. } | Prim::LinkedImage { .. } => {}
+                Prim::Image { .. } | Prim::PdfPicture { .. } | Prim::PictureRef { .. } | Prim::LinkedImage { .. } => {}
             }
         }
     }
@@ -237,7 +248,7 @@ impl Prim {
             }
             Prim::Text(t) => t.color = t.color.grayed(),
             // Pictures keep their pixels; they can't be picked either way.
-            Prim::Image { .. } | Prim::PictureRef { .. } | Prim::LinkedImage { .. } => {}
+            Prim::Image { .. } | Prim::PdfPicture { .. } | Prim::PictureRef { .. } | Prim::LinkedImage { .. } => {}
         }
     }
 
@@ -271,7 +282,7 @@ impl Prim {
                     .map(|p| t.origin + rot.apply_vec(p)),
                 )
             }
-            Prim::Image { corners, .. } | Prim::PictureRef { corners, .. } => {
+            Prim::Image { corners, .. } | Prim::PdfPicture { corners, .. } | Prim::PictureRef { corners, .. } => {
                 Rect::from_points(corners.iter().copied())
             }
             Prim::LinkedImage { p1, p3, .. } => {

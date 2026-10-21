@@ -438,7 +438,7 @@ pub fn to_svg_page(
                 }
             }
             Prim::Text(t) => text(&mut out, t),
-            Prim::PictureRef { .. } => {}
+            Prim::PictureRef { .. } | Prim::PdfPicture { .. } => {}
             Prim::LinkedImage { file, p1, p3, flipped } => {
                 linked_image(&mut out, file, *p1, *p3, *flipped);
             }

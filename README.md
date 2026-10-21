@@ -17,7 +17,7 @@ The library crate and the program share the name `fig2dev`; the program lives in
 
 ## Installation
 
-You need Rust 1.89 or newer from [rustup](https://rustup.rs). There are no C libraries to install, and the crates are not on crates.io.
+You need Rust 1.92 or newer from [rustup](https://rustup.rs). There are no C libraries to install, and the crates are not on crates.io.
 
 Straight from GitHub, a given release:
 
@@ -46,7 +46,7 @@ Against fig2dev 3.2.9a (C):
 - fig2dev's own test suite: 82 pass, 6 fail (`epsi` and two embedded-PostScript bitmap tests that need a PostScript interpreter, the `/MediaBox` helper program, a version-2 font size, the KOI8-R case whose `iconv KOI8R` macOS lacks), 6 need unported languages.
 - TeX family, plotters, EMF, Tk, pic, map: byte-identical to fig2dev on the test figures and on nearly all of xfig's ≈2,550 sample figures (the rest: Latin-1 text bytes, a few out-of-bounds reads in the C code).
 - EPS/PDF/SVG/bitmaps: same geometry as fig2dev. The C program writes PostScript and has ghostscript turn it into PDF and bitmaps; this port writes PDF itself and rasterises with tiny-skia, so PNG, GIF, JPEG etc. differ from ghostscript's pixels at the edges (antialiasing, font hinting) and are compared visually, not byte for byte.
-- Picture objects that are EPS files (gap): there is no PostScript interpreter, so an EPS picture is only complete in PostScript and EPS output (and pstex/pspdftex), where it is copied in as fig2dev does. In the bitmap languages it is drawn from the preview image the file carries (DOS EPS TIFF or EPSI), or left out when it has none; in PDF it is left out. PDF files as pictures are left out everywhere. JPEG pictures in PDF are written as decoded pixels (fig2dev, through ghostscript, keeps the JPEG data). SVG links every picture to its file, as fig2dev's SVG driver does.
+- PDF and EPS picture objects: a PDF file as a picture stays a vector. PDF output embeds its first page as a Form XObject (`hayro-write`); PostScript and EPS output get it as EPS written by a PostScript device on `hayro-interpret` (C: `pdftops`), as an image only when the page uses transparency, shadings or patterns (with a message); the bitmap languages render it with `hayro`; SVG links the file as gensvg does. An EPS picture is copied in as before in PostScript and EPS output (and pstex/pspdftex); in PDF and bitmap output it is drawn by ghostscript when `gs` is on `PATH` (run without a shell, `-dSAFER`, with a time and size limit, never on wasm), else from the preview image the file carries (bitmaps), or left out (PDF, with fig2dev's kind of message). JPEG pictures in PDF keep their data (`/DCTDecode`). Known limits: encrypted PDFs, PDF blend modes, knockout groups; CMYK colours are converted to RGB.
 
 ## Building and testing
 

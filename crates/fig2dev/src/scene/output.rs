@@ -299,6 +299,7 @@ pub fn write_with_notes(
             &page.meta,
             page.layout.as_ref(),
             page.pdf_minor,
+            page.embedded_eps,
         ),
         ExportFormat::LatexBox => latex_box::to_box(page.comments, bounds, scale).into_bytes(),
         ExportFormat::Png
