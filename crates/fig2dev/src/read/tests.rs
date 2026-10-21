@@ -205,3 +205,54 @@ fn editing_mode_reads_as_xfig_does() {
     assert!(readfp_fig(&mut ctx, nul.as_bytes()).is_ok());
     assert!(read(&nul).0.is_err());
 }
+
+#[test]
+fn repairs_are_functions_the_reader_uses() {
+    use super::{apply_font_size, repair_arc, repair_line, trim_text_start, ArcFault, LineFault, LineNote};
+    let line = |type_, pts: &[(i32, i32)]| Line {
+        type_,
+        fill_style: 20,
+        points: pts.iter().map(|&(x, y)| Point::new(x, y)).collect(),
+        ..Line::default()
+    };
+    // A box of three points (counting the closing one) is a polyline.
+    let mut l = line(T_BOX, &[(0, 0), (5, 0), (0, 0)]);
+    assert_eq!(repair_line(&mut l, 3), Ok(vec![LineNote::ToPolyline(3)]));
+    assert_eq!((l.type_, l.points.len(), l.fill_style), (T_POLYLINE, 2, UNFILLED));
+    // A distorted box is a polygon; an arc-box of three corners is refused.
+    let mut l = line(T_BOX, &[(0, 0), (5, 1), (5, 5), (0, 5), (0, 0)]);
+    assert_eq!(repair_line(&mut l, 5), Ok(vec![LineNote::ToPolygonDistorted]));
+    assert_eq!(l.type_, T_POLYGON);
+    let mut l = line(T_ARC_BOX, &[(0, 0), (5, 0), (5, 5), (0, 0)]);
+    assert_eq!(repair_line(&mut l, 4), Err(LineFault::Corners(3)));
+    // Arcs: radius below one unit, end on the centre, end moved onto the circle.
+    let arc = |p: [(i32, i32); 3]| Arc {
+        center: DPoint { x: 0.0, y: 0.0 },
+        point: p.map(|(x, y)| Point::new(x, y)),
+        ..Arc::default()
+    };
+    assert_eq!(
+        repair_arc(&mut arc([(0, 0), (5, 5), (9, 9)])),
+        Err(ArcFault::SmallRadius)
+    );
+    assert_eq!(
+        repair_arc(&mut arc([(10, 0), (5, 5), (0, 0)])),
+        Err(ArcFault::EndAtCenter)
+    );
+    let mut a = arc([(10, 0), (0, 10), (0, 20)]);
+    assert_eq!(repair_arc(&mut a), Ok(()));
+    assert_eq!(a.point[2], Point::new(0, 10));
+    // Texts.
+    let mut t = Text {
+        size: 0.0,
+        ..Text::default()
+    };
+    apply_font_size(0.0, &mut t);
+    assert_eq!(t.size, DEFAULT_FONT_SIZE);
+    t.size = 10.0;
+    t.length = 100.0;
+    apply_font_size(20.0, &mut t);
+    assert_eq!((t.size, t.length), (20.0, 200.0));
+    assert_eq!(trim_text_start(" \t x"), "x");
+    assert_eq!(trim_text_start("\n x"), "\n x");
+}
