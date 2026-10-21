@@ -12,10 +12,16 @@
 //! - [`creationdate`]: `creationdate.c` (honours `SOURCE_DATE_EPOCH`).
 //! - [`readjpg`]: `dev/readjpg.c`, `encode.c` (JPEG header, ASCII85, the DCT passthrough).
 //! - [`readpics`]: `dev/readpics.c` and the `dev/read*.c` picture readers.
+//! - [`pdfpic`], [`pdfps`]: PDF pictures through the `hayro` crates (`pdftops` of `dev/readeps.c`).
+//! - `gs`: ghostscript for EPS pictures in PDF and bitmap output (not on wasm).
 
 pub mod creationdate;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod gs;
 pub mod iso2tex;
 pub mod latex;
+pub mod pdfpic;
+pub mod pdfps;
 pub mod psfonts;
 pub mod readjpg;
 pub mod readpics;

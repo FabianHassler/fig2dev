@@ -14,10 +14,12 @@
 // (xfig licence, see LICENSE-xfig).
 
 use super::{
-    fill, picture_prims_dct, shape_prims, stroke, EmbeddedEps, EmbeddedJpeg, Fill, Prim, Rgba, Scene, Shape, TextPrim,
+    fill, picture_prims_dct, shape_prims, stroke, EmbeddedEps, EmbeddedJpeg, Fill, Prim, Rgba, Scene, Shape, SubPath,
+    TextPrim,
 };
 use crate::gendev::{drawing_order, Obj, FIG_COLOR_NAMES, NUM_STD_COLS};
 use crate::object::{self as f, Compound};
+use crate::util::pdfpic::PdfPicture;
 use crate::util::readpics::{load_picture, load_picture_genps, LoadedPicture};
 use crate::Ctx;
 use figbase::color::{Rgb, STANDARD_COLORS};
@@ -57,6 +59,15 @@ pub struct TextOptions {
     /// without reading them: no pixels, no messages, no placeholder.
     /// SVG export only; the canvas keeps its placeholder.
     pub link_pictures: bool,
+    /// PostScript output (PostScript, EPS, pstex): a PDF picture is
+    /// converted to EPS and embedded (fig2dev's `pdftops`). Otherwise a PDF
+    /// picture is a [`Prim::PdfPicture`].
+    pub ps_pictures: bool,
+    /// PDF and bitmap output: an EPS picture is turned into a PDF page by
+    /// ghostscript, when it is installed (the C fig2dev has ghostscript draw
+    /// the whole PostScript). Without it the preview is used, if the file
+    /// has one. Not on wasm.
+    pub eps_via_gs: bool,
 }
 
 impl Default for TextOptions {
@@ -68,6 +79,8 @@ impl Default for TextOptions {
             eps_preview: false,
             genps: false,
             link_pictures: false,
+            ps_pictures: false,
+            eps_via_gs: false,
         }
     }
 }
@@ -85,6 +98,9 @@ pub struct Builder {
     pub prims: Vec<Prim>,
     /// The EPS pictures read, by file name, for the EPS writer to embed.
     pub embedded_eps: BTreeMap<String, EmbeddedEps>,
+    /// The message about missing ghostscript has been given.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    told_gs: bool,
 }
 
 impl Builder {
@@ -96,6 +112,7 @@ impl Builder {
             text,
             prims: Vec::new(),
             embedded_eps: BTreeMap::new(),
+            told_gs: false,
         }
     }
 
@@ -416,6 +433,8 @@ impl Builder {
         let file = pic.map(|p| p.file.as_str()).unwrap_or_default();
         let mut image = None;
         let mut dct = false;
+        // a PDF page to draw as a vector picture
+        let mut pdf_vector: Option<Shared<PdfPicture>> = None;
         if !file.is_empty() {
             let loaded = if self.text.genps {
                 load_picture_genps(ctx, file)
@@ -436,6 +455,9 @@ impl Builder {
                     // fig2dev has ghostscript run the PostScript.
                     if self.text.eps_preview {
                         image = preview.map(Shared::new);
+                    }
+                    if self.text.eps_via_gs {
+                        pdf_vector = self.eps_by_gs(ctx, &ps, image.is_some());
                     }
                     self.embedded_eps.insert(
                         file.to_string(),
@@ -470,7 +492,31 @@ impl Builder {
                         );
                     }
                 }
-                Ok(LoadedPicture::Pdf) => {}
+                Ok(LoadedPicture::Pdf(Some(_))) if self.text.ps_pictures && self.embedded_eps.contains_key(file) => {}
+                Ok(LoadedPicture::Pdf(Some(pdf))) if self.text.ps_pictures => match pdf.to_eps() {
+                    Some(e) => {
+                        if e.raster {
+                            ctx.warn(format!(
+                                "{file}: the PDF page uses transparency or shading that PostScript can't draw; it is written as an image"
+                            ));
+                        }
+                        self.embedded_eps.insert(
+                            file.to_string(),
+                            EmbeddedEps {
+                                title: file.to_string(),
+                                llx: 0,
+                                lly: 0,
+                                urx: e.width,
+                                ury: e.height,
+                                ps: e.ps.into_bytes(),
+                                jpeg: None,
+                            },
+                        );
+                    }
+                    None => ctx.warn(format!("Cannot convert a pdf to eps: {file}")),
+                },
+                Ok(LoadedPicture::Pdf(Some(pdf))) => pdf_vector = Some(Shared::new(pdf)),
+                Ok(LoadedPicture::Pdf(None)) => {}
                 // fig2dev's message. genps then draws nothing (not even a
                 // frame); the canvas keeps a crossed box as placeholder.
                 Err(e) => {
@@ -487,6 +533,26 @@ impl Builder {
         } else {
             None
         };
+        if let Some(pdf) = pdf_vector {
+            let corners = r.corners();
+            self.prims.push(Prim::PdfPicture {
+                corners,
+                flipped: pic.is_some_and(|p| p.flipped != 0),
+                pdf,
+            });
+            if let Some(stroke) = frame {
+                self.prims.push(Prim::Path {
+                    subpaths: vec![SubPath {
+                        pts: corners.to_vec(),
+                        closed: true,
+                        curve: None,
+                    }],
+                    fill: None,
+                    stroke: Some(stroke),
+                });
+            }
+            return;
+        }
         picture_prims_dct(
             r.corners(),
             image,
@@ -496,6 +562,36 @@ impl Builder {
             frame,
             &mut self.prims,
         );
+    }
+
+    /// An EPS picture drawn by ghostscript: its PDF page. `None`, with the
+    /// reason as a message, when ghostscript is missing or fails (a file
+    /// with a preview says nothing about a missing ghostscript).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn eps_by_gs(&mut self, ctx: &mut Ctx, ps: &[u8], has_preview: bool) -> Option<Shared<PdfPicture>> {
+        match crate::util::gs::eps_to_pdf(ps).map(|pdf| PdfPicture::open(pdf.to_vec())) {
+            Ok(Some(p)) => Some(Shared::new(p)),
+            Ok(None) => {
+                ctx.warn("ghostscript gave a PDF that can't be read");
+                None
+            }
+            Err(m) => {
+                if m == crate::util::gs::MISSING_MESSAGE {
+                    if !has_preview && !self.told_gs {
+                        ctx.warn(m);
+                    }
+                    self.told_gs = true;
+                } else {
+                    ctx.warn(m);
+                }
+                None
+            }
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn eps_by_gs(&mut self, _ctx: &mut Ctx, _ps: &[u8], _has_preview: bool) -> Option<Shared<PdfPicture>> {
+        None
     }
 
     pub fn spline(&mut self, ctx: &Ctx, s: &f::Spline) {

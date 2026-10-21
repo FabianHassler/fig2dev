@@ -2,6 +2,7 @@
 
 use super::pattern::{coverage, PatternFrame};
 use super::{textcache, Fill, Prim, Rgba, Scene, Stroke, SubPath, TextPrim};
+use crate::util::pdfpic::PdfPicture;
 use figbase::geom::{Affine, Point, Rect};
 use figbase::image::RasterImage;
 use figbase::style::{CapStyle, JoinStyle, Justify};
@@ -315,6 +316,57 @@ fn draw_image(pm: &mut Pixmap, corners: &[Point; 4], img: &Arc<RasterImage>, fli
     pm.draw_pixmap(0, 0, src.as_ref(), &paint, ts, None);
 }
 
+/// A rendered PDF picture: (file id, width, height) and the pixels.
+type PdfPage = ((u64, u32, u32), Arc<RasterImage>);
+
+thread_local! {
+    /// Rendered PDF pictures, by file, pixel size and nothing else (the
+    /// canvas draws the same page every frame).
+    static PDF_PAGES: RefCell<Vec<PdfPage>> = const { RefCell::new(Vec::new()) };
+}
+
+/// A PDF picture: its first page rendered to the box's size in pixels, then
+/// drawn like an image.
+fn draw_pdf(pm: &mut Pixmap, corners: &[Point; 4], flipped: bool, pdf: &Arc<PdfPicture>, opts: &RasterOptions) {
+    let t = &opts.transform;
+    let view = Rect::new(Point::ZERO, Point::new(f64::from(pm.width()), f64::from(pm.height())));
+    if !Rect::from_points(corners.iter().map(|p| t.apply(*p))).intersects(&view) {
+        return;
+    }
+    let [tl, tr, _br, bl] = corners.map(|p| t.apply(p));
+    let (ex, ey) = if flipped {
+        (bl - tl, tr - tl)
+    } else {
+        (tr - tl, bl - tl)
+    };
+    let px = |v: f64| {
+        if v.is_finite() {
+            v.abs().ceil().clamp(1.0, 16_000.0) as u32
+        } else {
+            1
+        }
+    };
+    let (w, h) = (px(ex.len()), px(ey.len()));
+    let key = (pdf.id(), w, h);
+    let cached = PDF_PAGES.with(|c| c.borrow().iter().find(|e| e.0 == key).map(|e| e.1.clone()));
+    let img = match cached {
+        Some(i) => i,
+        None => {
+            let Some(i) = pdf.render(w, h) else { return };
+            let i = Arc::new(i);
+            PDF_PAGES.with(|c| {
+                let mut c = c.borrow_mut();
+                if c.len() >= 6 {
+                    c.remove(0);
+                }
+                c.push((key, i.clone()));
+            });
+            i
+        }
+    };
+    draw_image(pm, corners, &img, flipped, opts);
+}
+
 /// Draw a scene onto a pixmap, antialiased.
 pub fn rasterize(scene: &Scene, pm: &mut Pixmap, opts: &RasterOptions) {
     rasterize_aa(scene, pm, opts, true);
@@ -328,6 +380,7 @@ pub fn rasterize_aa(scene: &Scene, pm: &mut Pixmap, opts: &RasterOptions, aa: bo
             Prim::Path { subpaths, fill, stroke } => draw_path(pm, subpaths, fill.as_ref(), stroke.as_ref(), opts, aa),
             Prim::Text(t) => draw_text(pm, t, opts, aa),
             Prim::PictureRef { .. } | Prim::LinkedImage { .. } => {}
+            Prim::PdfPicture { corners, flipped, pdf } => draw_pdf(pm, corners, *flipped, pdf, opts),
             Prim::Image {
                 corners,
                 image,

@@ -4,12 +4,14 @@
 use super::output::{Meta, CREATOR};
 use super::pattern::{coverage, PatternFrame};
 use super::{Fill, PageLayout, Prim, Rgba, Scene, Stroke, SubPath, TextPrim};
+use crate::util::pdfpic::PdfPicture;
 use figbase::geom::{Point, Rect, Seg};
 use figbase::image::RasterImage;
 use figbase::style::{CapStyle, JoinStyle, Justify};
 use pdf_writer::types::{LineCapStyle, LineJoinStyle};
 use pdf_writer::types::{SystemInfo, UnicodeCmap};
 use pdf_writer::{Content, Date, Filter, Finish, Name, Pdf, Rect as PdfRect, Ref, Str, TextStr};
+use std::collections::BTreeMap;
 
 /// The standard fonts used for text, by resource name.
 const BASE14: [(&str, &str); 14] = [
@@ -363,9 +365,19 @@ struct PendingImage {
     alpha: Option<Vec<u8>>,
     w: u32,
     h: u32,
+    /// A JPEG file the PDF carries as it is (DCTDecode), as ghostscript
+    /// does for genps's output.
+    jpeg: Option<super::EmbeddedJpeg>,
 }
 
-fn image(c: &mut Ctx, corners: &[Point; 4], img: &RasterImage, flipped: bool, images: &mut Vec<PendingImage>) {
+fn image(
+    c: &mut Ctx,
+    corners: &[Point; 4],
+    img: &RasterImage,
+    flipped: bool,
+    jpeg: Option<&super::EmbeddedJpeg>,
+    images: &mut Vec<PendingImage>,
+) {
     let (w, h) = (img.width, img.height);
     let expected = (w as usize).saturating_mul(h as usize).saturating_mul(4);
     if w == 0 || h == 0 || img.rgba.len() != expected {
@@ -399,7 +411,58 @@ fn image(c: &mut Ctx, corners: &[Point; 4], img: &RasterImage, flipped: bool, im
         alpha: if opaque { None } else { Some(alpha) },
         w,
         h,
+        jpeg: jpeg.cloned(),
     });
+}
+
+/// A PDF picture used on the page: the name of its XObject.
+struct PendingPdf {
+    name: String,
+    pic: std::sync::Arc<PdfPicture>,
+}
+
+/// A PDF picture: its first page as a Form XObject, whose lower left corner
+/// and size (`W` x `H` points) are mapped onto the picture's box.
+fn pdf_picture(
+    c: &mut Ctx,
+    corners: &[Point; 4],
+    flipped: bool,
+    pic: &std::sync::Arc<PdfPicture>,
+    pdfs: &mut Vec<PendingPdf>,
+) {
+    let (pw, ph) = pic.size();
+    let name = match pdfs.iter().find(|p| p.pic.id() == pic.id()) {
+        Some(p) => p.name.clone(),
+        None => {
+            let name = format!("Pdf{}", pdfs.len());
+            pdfs.push(PendingPdf {
+                name: name.clone(),
+                pic: pic.clone(),
+            });
+            name
+        }
+    };
+    let [tl, tr, _, bl] = corners.map(|p| {
+        let (x, y) = c.p(p);
+        Point::new(f64::from(x), f64::from(y))
+    });
+    let (ex, ey) = if flipped {
+        (bl - tl, tr - tl)
+    } else {
+        (tr - tl, bl - tl)
+    };
+    // The page's (x, y), y up, goes to tl + x/W ex + (1 - y/H) ey.
+    c.c.save_state();
+    c.c.transform([
+        f(ex.x / pw),
+        f(ex.y / pw),
+        f(-ey.x / ph),
+        f(-ey.y / ph),
+        f(tl.x + ey.x),
+        f(tl.y + ey.y),
+    ]);
+    c.c.x_object(Name(name.as_bytes()));
+    c.c.restore_state();
 }
 
 /// Render a scene as a one-page PDF covering `bounds` (Fig units) at `scale`.
@@ -409,7 +472,7 @@ pub fn to_pdf(scene: &Scene, bounds: &Rect, scale: f64, background: Option<Rgba>
         title: title.unwrap_or_default().to_string(),
         ..Meta::default()
     };
-    to_pdf_pages(scene, bounds, scale, background, &meta, None, 5)
+    to_pdf_pages(scene, bounds, scale, background, &meta, None, 5, &BTreeMap::new())
 }
 
 /// Like [`to_pdf`]; with a `layout` the figure goes on its pages (fig2dev's
@@ -424,6 +487,7 @@ pub fn to_pdf_pages(
     meta: &Meta<'_>,
     layout: Option<&PageLayout>,
     minor: u8,
+    embeds: &BTreeMap<String, super::EmbeddedEps>,
 ) -> Vec<u8> {
     let b = if bounds.is_empty() {
         Rect::new(Point::ZERO, Point::new(1.0, 1.0))
@@ -446,6 +510,7 @@ pub fn to_pdf_pages(
         c.c.fill_even_odd();
     }
     let mut images = Vec::new();
+    let mut pdfs: Vec<PendingPdf> = Vec::new();
     for p in &scene.prims {
         match p {
             Prim::Path { subpaths, fill, stroke } => {
@@ -504,12 +569,16 @@ pub fn to_pdf_pages(
             }
             Prim::Text(t) => text(&mut c, t),
             Prim::PictureRef { .. } | Prim::LinkedImage { .. } => {}
+            Prim::PdfPicture { corners, flipped, pdf } => pdf_picture(&mut c, corners, *flipped, pdf, &mut pdfs),
             Prim::Image {
                 corners,
                 image: img,
                 flipped,
-                ..
-            } => image(&mut c, corners, img, *flipped, &mut images),
+                dct,
+            } => {
+                let jpeg = dct.as_ref().and_then(|f| embeds.get(f)).and_then(|e| e.jpeg.as_ref());
+                image(&mut c, corners, img, *flipped, jpeg, &mut images)
+            }
         }
     }
 
@@ -524,7 +593,7 @@ pub fn to_pdf_pages(
     for im in &images {
         let id = Ref::new(next);
         next += 1;
-        let mask = if im.alpha.is_some() {
+        let mask = if im.alpha.is_some() && im.jpeg.is_none() {
             let m = Ref::new(next);
             next += 1;
             Some(m)
@@ -532,6 +601,21 @@ pub fn to_pdf_pages(
             None
         };
         image_ids.push((im.name.clone(), id, mask));
+    }
+    // The PDF pictures' pages: their objects come after ours; one that
+    // can't be copied is an empty form, so the name still resolves.
+    let mut pdf_objs: Vec<(String, Ref, Option<pdf_writer::Chunk>)> = Vec::new();
+    for p in &pdfs {
+        match p.pic.xobject(next) {
+            Some((chunk, root, after)) => {
+                next = after;
+                pdf_objs.push((p.name.clone(), root, Some(chunk)));
+            }
+            None => {
+                pdf_objs.push((p.name.clone(), Ref::new(next), None));
+                next += 1;
+            }
+        }
     }
     // One page of the figure's size, or fig2dev's pages on the paper.
     let figure_page = [(0.0, 0.0)];
@@ -585,6 +669,9 @@ pub fn to_pdf_pages(
         {
             let mut xo = res.x_objects();
             for (name, id, _) in &image_ids {
+                xo.pair(Name(name.as_bytes()), *id);
+            }
+            for (name, id, _) in &pdf_objs {
                 xo.pair(Name(name.as_bytes()), *id);
             }
         }
@@ -665,6 +752,24 @@ pub fn to_pdf_pages(
         pdf.stream(*content_id, &bytes);
     }
     for (im, (_, id, mask)) in images.iter().zip(image_ids.iter()) {
+        if let Some(j) = &im.jpeg {
+            let mut x = pdf.image_xobject(*id, &j.data);
+            x.filter(Filter::DctDecode);
+            x.width(j.info.width);
+            x.height(j.info.height);
+            match j.info.components {
+                1 => x.color_space().device_gray(),
+                4 => x.color_space().device_cmyk(),
+                _ => x.color_space().device_rgb(),
+            }
+            x.bits_per_component(j.info.bits_per_component);
+            if j.info.adobe && j.info.components == 4 {
+                // Adobe's CMYK files are inverted
+                x.decode([1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0]);
+            }
+            x.finish();
+            continue;
+        }
         let data = miniz_oxide::deflate::compress_to_vec_zlib(&im.rgb, 6);
         let mut x = pdf.image_xobject(*id, &data);
         x.filter(Filter::FlateDecode);
@@ -685,6 +790,17 @@ pub fn to_pdf_pages(
             s.color_space().device_gray();
             s.bits_per_component(8);
             s.finish();
+        }
+    }
+    for (_, id, chunk) in &pdf_objs {
+        match chunk {
+            Some(chunk) => {
+                pdf.extend(chunk);
+            }
+            None => {
+                let mut x = pdf.form_xobject(*id, b"");
+                x.bbox(PdfRect::new(0.0, 0.0, 1.0, 1.0));
+            }
         }
     }
     // What ghostscript's pdfwrite takes from genps's DSC comments.

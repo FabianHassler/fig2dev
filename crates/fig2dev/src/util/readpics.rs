@@ -1914,9 +1914,10 @@ pub enum LoadedPicture {
         info: readjpg::JpegInfo,
         data: Vec<u8>,
     },
-    /// A PDF file: fig2dev converts it with external programs; RustFig
-    /// shows a placeholder.
-    Pdf,
+    /// A PDF file: fig2dev converts it with external programs (`pdftops`);
+    /// here its first page is read with the `hayro` crates. `None` when
+    /// the file can't be read that way (the picture is then left out).
+    Pdf(Option<super::pdfpic::PdfPicture>),
 }
 
 /// Reads picture `name` the way fig2dev does (`readpics.c`: the file, or
@@ -1946,9 +1947,16 @@ fn load_picture_as(ctx: &mut Ctx, name: &str, genps: bool) -> Result<LoadedPictu
         file: name.to_string(),
         ..Pic::default()
     };
+    if kind == PicType::Pdf {
+        // The page box comes from the PDF reader; C scans for /MediaBox or
+        // asks ghostscript, which fail on what the reader can still open.
+        if let Some(p) = super::pdfpic::PdfPicture::open(stream.data.clone()) {
+            return Ok(LoadedPicture::Pdf(Some(p)));
+        }
+    }
     let (llx, lly) = read_pic(ctx, &stream, &mut pic)?;
     match kind {
-        PicType::Pdf => Ok(LoadedPicture::Pdf),
+        PicType::Pdf => Ok(LoadedPicture::Pdf(None)),
         PicType::Eps | PicType::Epsi => Ok(LoadedPicture::Eps {
             llx,
             lly,

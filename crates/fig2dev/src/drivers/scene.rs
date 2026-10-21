@@ -355,6 +355,8 @@ impl Driver for SceneDriver {
             eps_preview: self.format.is_bitmap(),
             genps: !matches!(self.format, ExportFormat::Svg),
             link_pictures: matches!(self.format, ExportFormat::Svg),
+            ps_pictures: matches!(self.format, ExportFormat::Eps),
+            eps_via_gs: matches!(self.format, ExportFormat::Pdf) || self.format.is_bitmap(),
         };
         self.builder = Some(Builder::new(ctx, text));
         self.options = Some(o);
