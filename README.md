@@ -22,7 +22,7 @@ You need Rust 1.89 or newer from [rustup](https://rustup.rs). There are no C lib
 Straight from GitHub, a given release:
 
 ```
-cargo install --locked --git https://github.com/FabianHassler/fig2dev --tag v0.4.0 fig2dev-cli
+cargo install --locked --git https://github.com/FabianHassler/fig2dev --tag v0.5.0 fig2dev-cli
 ```
 
 Or from a clone:

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 — 2026-10-20
+## 0.5.0 — 2026-10-21
 
 - The reader's repairs and checks as functions (RustFig D7: export from objects without Fig text): `read::repair_line` (`sanitize_lineobject`: close, convert and unfill boxes, polygons and polylines; returns what the reader says as `LineNote`s, or a `LineFault`), `read::repair_arc` (`sanitize_arc`), `read::{arc_invalid, line_invalid, spline_invalid, ellipse_invalid, text_invalid, common_invalid}` (the field checks), `read::arrow_fault` (`make_arrow`'s refusals), `read::apply_font_size` (`-s` on a text) and `read::trim_text_start` (the blanks `sscanf` drops before a text). The reader calls them, so a figure built in memory gets exactly what a file gets; no change to the reader's or the drivers' output or messages.
 
