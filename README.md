@@ -45,7 +45,8 @@ Against fig2dev 3.2.9a (C):
 
 - fig2dev's own test suite: 82 pass, 6 fail (`epsi` and two embedded-PostScript bitmap tests that need a PostScript interpreter, the `/MediaBox` helper program, a version-2 font size, the KOI8-R case whose `iconv KOI8R` macOS lacks), 6 need unported languages.
 - TeX family, plotters, EMF, Tk, pic, map: byte-identical to fig2dev on the test figures and on nearly all of xfig's ≈2,550 sample figures (the rest: Latin-1 text bytes, a few out-of-bounds reads in the C code).
-- EPS/PDF/SVG/bitmaps: same geometry as fig2dev under ghostscript; the rasterised outputs differ slightly (antialiasing), and pictures in PDF and EPS pictures in SVG/bitmaps are not complete yet.
+- EPS/PDF/SVG/bitmaps: same geometry as fig2dev. The C program writes PostScript and has ghostscript turn it into PDF and bitmaps; this port writes PDF itself and rasterises with tiny-skia, so PNG, GIF, JPEG etc. differ from ghostscript's pixels at the edges (antialiasing, font hinting) and are compared visually, not byte for byte.
+- Picture objects that are EPS files (gap): there is no PostScript interpreter, so an EPS picture is only complete in PostScript and EPS output (and pstex/pspdftex), where it is copied in as fig2dev does. In the bitmap languages it is drawn from the preview image the file carries (DOS EPS TIFF or EPSI), or left out when it has none; in PDF it is left out. PDF files as pictures are left out everywhere. JPEG pictures in PDF are written as decoded pixels (fig2dev, through ghostscript, keeps the JPEG data). SVG links every picture to its file, as fig2dev's SVG driver does.
 
 ## Building and testing
 
