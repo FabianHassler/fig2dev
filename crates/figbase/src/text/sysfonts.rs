@@ -249,6 +249,10 @@ pub(crate) struct Resolver {
 }
 
 impl Resolver {
+    pub(crate) fn db(&self) -> &Database {
+        &self.db
+    }
+
     pub(crate) fn with_db(db: Database) -> Resolver {
         Resolver {
             db,
@@ -486,6 +490,8 @@ pub fn add_font_dirs(dirs: &[PathBuf]) {
     }
     // The cached choices may change: look again.
     g.resolver = None;
+    drop(g);
+    super::local::clear_cache();
 }
 
 /// The installed face for a request (None: use the built-in fonts).
@@ -499,6 +505,19 @@ pub(crate) fn pick_system(req: &super::FontRequest) -> Option<Picked> {
         g.resolver = Some(Resolver::with_db(db));
     }
     g.resolver.as_mut()?.resolve(req)
+}
+
+/// Run `f` on the installed fonts' database (None with the built-in fonts).
+pub(crate) fn with_db<R>(f: impl FnOnce(&Database) -> R) -> Option<R> {
+    let mut g = lock();
+    if builtin_in(&g) {
+        return None;
+    }
+    if g.resolver.is_none() {
+        let db = build_db(&g.extra);
+        g.resolver = Some(Resolver::with_db(db));
+    }
+    g.resolver.as_ref().map(|r| f(r.db()))
 }
 
 /// Installed faces with broad symbol coverage (empty with the built-in fonts).

@@ -19,6 +19,7 @@ ttf-parser = "0.25"
 epaint_default_fonts = "0.33"
 fontdb = { version = "0.24", default-features = false, features = ["std"] }
 pdf-writer = "0.15"
+subsetter = { version = "0.2", default-features = false }
 hayro = "0.8"
 hayro-write = "0.8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "pnm", "tiff"] }

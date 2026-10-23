@@ -10,6 +10,7 @@
 // LICENSE-xfig). The UTF-8 text path (CMap, `composefont`, `-UTF-8` fonts)
 // is ported from genps.c (`note_text_needing_cmap`, `genps_text`).
 
+use super::localfont::{sfnts_strings, GlyphSet};
 use super::output::{Meta, CREATOR};
 use super::pattern::{coverage, PatternFrame};
 use super::ps_cmap::{XFIG_CMAP1, XFIG_CMAP2, XFIG_CMAP3};
@@ -28,6 +29,114 @@ struct Ctx {
     max_y: f64,
     /// The creation date, for the DSC header of an embedded JPEG.
     date: Option<String>,
+    /// Subsets of installed TrueType fonts (Type 42), in the order of
+    /// first use; at most 255 glyphs each.
+    lf: Vec<GlyphSet>,
+    /// Installed fonts drawn as outlines (their subset can't be written).
+    lf_outline: std::collections::BTreeSet<String>,
+}
+
+/// The glyph sets of the installed fonts a scene uses, and the fonts whose
+/// subset can't be made into a Type 42 font (drawn as outlines instead).
+fn plan_local_fonts(scene: &Scene) -> (Vec<GlyphSet>, std::collections::BTreeSet<String>) {
+    let mut sets: Vec<GlyphSet> = Vec::new();
+    let mut outline = std::collections::BTreeSet::new();
+    for p in &scene.prims {
+        let Prim::Text(t) = p else { continue };
+        let Some(font) = t.local() else { continue };
+        if font.cff || !font.embeddable {
+            continue;
+        }
+        for ch in t.text.chars().filter(|&ch| ch != '\n') {
+            let have = sets
+                .iter()
+                .any(|g| g.font.name == font.name && g.used.iter().any(|u| u.1 == ch));
+            if have {
+                continue;
+            }
+            let idx = match sets.iter().position(|g| g.font.name == font.name && g.used.len() < 255) {
+                Some(i) => i,
+                None => {
+                    sets.push(GlyphSet::new(font.clone()));
+                    sets.len() - 1
+                }
+            };
+            if let Some(set) = sets.get_mut(idx) {
+                set.code(ch, 255);
+            }
+        }
+    }
+    for set in &sets {
+        let ok = set.subset().is_some_and(|d| sfnts_strings(&d).is_some());
+        if !ok {
+            outline.insert(set.font.name.clone());
+        }
+    }
+    sets.retain(|g| !outline.contains(&g.font.name));
+    (sets, outline)
+}
+
+/// The Type 42 fonts of the subsets, in the prolog.
+fn type42_fonts(out: &mut String, sets: &[GlyphSet]) {
+    for (i, set) in sets.iter().enumerate() {
+        let Some(data) = set.subset() else { continue };
+        let Some(strings) = sfnts_strings(&data) else { continue };
+        let (upm, bbox) = match set.font.face() {
+            Some(f) => {
+                let b = f.global_bounding_box();
+                (
+                    f64::from(f.units_per_em().max(1)),
+                    [
+                        f64::from(b.x_min),
+                        f64::from(b.y_min),
+                        f64::from(b.x_max),
+                        f64::from(b.y_max),
+                    ],
+                )
+            }
+            None => (1000.0, [0.0, -200.0, 1000.0, 900.0]),
+        };
+        let _ = writeln!(out, "%%BeginResource: font RFLocal{i}");
+        let _ = writeln!(
+            out,
+            "11 dict begin\n/FontName /RFLocal{i} def\n/FontType 42 def\n/FontMatrix [1 0 0 1 0 0] def\n/PaintType 0 def\n/FontBBox [{} {} {} {}] def",
+            bbox[0] / upm,
+            bbox[1] / upm,
+            bbox[2] / upm,
+            bbox[3] / upm
+        );
+        out.push_str("/Encoding 256 array 0 1 255 {1 index exch /.notdef put} for\n");
+        for k in 1..=set.used.len() {
+            let _ = writeln!(out, "dup {k} /g{k} put");
+        }
+        out.push_str("def\n/CharStrings ");
+        let _ = writeln!(out, "{} dict dup begin\n/.notdef 0 def", set.used.len() + 1);
+        for (k, (gid, _, _)) in set.used.iter().enumerate() {
+            let _ = writeln!(out, "/g{} {} def", k + 1, gid);
+        }
+        out.push_str("end readonly def\n/sfnts [\n");
+        for piece in strings {
+            out.push('<');
+            let mut col = 0;
+            for b in piece {
+                let _ = write!(out, "{b:02x}");
+                col += 2;
+                if col >= 64 {
+                    out.push('\n');
+                    col = 0;
+                }
+            }
+            // Strings of a Type 42 font have an even length.
+            if piece.len() % 2 == 1 {
+                out.push_str("00");
+            }
+            out.push_str(">\n");
+        }
+        let _ = writeln!(
+            out,
+            "] def\ncurrentdict end /RFLocal{i} exch definefont pop\n%%EndResource"
+        );
+    }
 }
 
 fn n(v: f64) -> String {
@@ -40,6 +149,18 @@ fn n(v: f64) -> String {
 }
 
 impl Ctx {
+    /// The part and code of `ch` in installed font `font`.
+    fn lf_code(&self, font: &figbase::text::LocalFont, ch: char) -> Option<(usize, u8)> {
+        for (i, g) in self.lf.iter().enumerate() {
+            if g.font.name == font.name {
+                if let Some(k) = g.used.iter().position(|u| u.1 == ch) {
+                    return Some((i, u8::try_from(k + 1).ok()?));
+                }
+            }
+        }
+        None
+    }
+
     fn p(&self, p: Point) -> (f64, f64) {
         ((p.x - self.min_x) * self.k, (self.max_y - p.y) * self.k)
     }
@@ -264,7 +385,118 @@ fn ps_string_bytes(s: &str) -> String {
     o
 }
 
+/// Text in an installed TrueType font: a Type 42 font of the subset
+/// (defined in the prolog; see [`type42_fonts`]).
+fn local_text(c: &mut Ctx, t: &TextPrim) -> bool {
+    let Some(font) = t.local() else {
+        return false;
+    };
+    if font.cff || !font.embeddable || c.lf_outline.contains(&font.name) {
+        // Outlines: CFF fonts and fonts that may not be embedded.
+        outline_text(c, t);
+        return true;
+    }
+    let size = super::font_px(t.size) * c.k;
+    let (x, y) = c.p(t.origin);
+    c.rgb(t.color);
+    let shaped = super::textcache::shaped(t);
+    for (i, line) in t.text.split('\n').enumerate() {
+        // The glyphs of one line may sit in several parts of 255 glyphs.
+        let mut parts: Vec<(usize, Vec<u8>)> = Vec::new();
+        for ch in line.chars() {
+            if let Some((p, code)) = c.lf_code(&font, ch) {
+                match parts.last_mut() {
+                    Some((q, bytes)) if *q == p => bytes.push(code),
+                    _ => parts.push((p, vec![code])),
+                }
+            }
+        }
+        let w = shaped.line_widths.get(i).copied().unwrap_or(0.0) * c.k;
+        let dx = match t.justify {
+            Justify::Left => 0.0,
+            Justify::Center => -w / 2.0,
+            Justify::Right => -w,
+        };
+        let dy = -(i as f64) * size * figbase::text::LINE_SPACING;
+        let _ = write!(
+            c.out,
+            "gsave {} {} translate {} rotate {} {} moveto ",
+            n(x),
+            n(y),
+            n(t.angle.to_degrees()),
+            n(dx),
+            n(dy)
+        );
+        for (p, bytes) in &parts {
+            let _ = write!(c.out, "/RFLocal{p} findfont {} scalefont setfont (", n(size));
+            for &b in bytes {
+                let _ = write!(c.out, "\\{b:03o}");
+            }
+            c.out.push_str(") show ");
+        }
+        c.out.push_str("grestore\n");
+    }
+    true
+}
+
+/// The text's glyph outlines, filled.
+fn outline_text(c: &mut Ctx, t: &TextPrim) {
+    use figbase::text::PathOp;
+    let (ops, _, _) = super::raster::text_ops_fig(t);
+    c.rgb(t.color);
+    c.out.push_str("newpath\n");
+    let mut cur = (0.0, 0.0);
+    for op in ops {
+        let pt = |x: f64, y: f64| c.p(Point::new(x, y));
+        match op {
+            PathOp::Move(x, y) => {
+                cur = pt(x, y);
+                let _ = writeln!(c.out, "{} {} moveto", n(cur.0), n(cur.1));
+            }
+            PathOp::Line(x, y) => {
+                cur = pt(x, y);
+                let _ = writeln!(c.out, "{} {} lineto", n(cur.0), n(cur.1));
+            }
+            PathOp::Quad(a, b, x, y) => {
+                let (q, e) = (pt(a, b), pt(x, y));
+                let c1 = (cur.0 + 2.0 / 3.0 * (q.0 - cur.0), cur.1 + 2.0 / 3.0 * (q.1 - cur.1));
+                let c2 = (e.0 + 2.0 / 3.0 * (q.0 - e.0), e.1 + 2.0 / 3.0 * (q.1 - e.1));
+                let _ = writeln!(
+                    c.out,
+                    "{} {} {} {} {} {} curveto",
+                    n(c1.0),
+                    n(c1.1),
+                    n(c2.0),
+                    n(c2.1),
+                    n(e.0),
+                    n(e.1)
+                );
+                cur = e;
+            }
+            PathOp::Cubic(a, b, cc, d, x, y) => {
+                let (p1, p2, e) = (pt(a, b), pt(cc, d), pt(x, y));
+                let _ = writeln!(
+                    c.out,
+                    "{} {} {} {} {} {} curveto",
+                    n(p1.0),
+                    n(p1.1),
+                    n(p2.0),
+                    n(p2.1),
+                    n(e.0),
+                    n(e.1)
+                );
+                cur = e;
+            }
+            PathOp::Close => c.out.push_str("closepath\n"),
+        }
+    }
+    c.out.push_str("fill\n");
+}
+
 fn text(c: &mut Ctx, t: &TextPrim) {
+    if local_text(c, t) {
+        return;
+    }
     let name = font_name(t);
     let utf8 = needs_utf8(t);
     let latin = !matches!(name, "Symbol" | "ZapfDingbats");
@@ -577,8 +809,13 @@ pub fn to_eps(
         min_x: b.min.x,
         max_y: b.max.y,
         date: meta.date.as_ref().map(|d| d.iso()),
+        lf: Vec::new(),
+        lf_outline: Default::default(),
     };
+    (c.lf, c.lf_outline) = plan_local_fonts(scene);
     let (w, h) = (b.width() * k, b.height() * k);
+    draw_prims(&mut c, scene, embeds);
+    let body = std::mem::take(&mut c.out);
     c.out.push_str("%!PS-Adobe-3.0 EPSF-3.0\n");
     dsc_head(&mut c.out, meta);
     let _ = writeln!(c.out, "%%BoundingBox: 0 0 {} {}", w.ceil() as i64, h.ceil() as i64);
@@ -591,12 +828,13 @@ pub fn to_eps(
     utf8_cmap(&mut c.out, &fonts);
     prolog(&mut c.out);
     utf8_composefonts(&mut c.out, &fonts);
+    type42_fonts(&mut c.out, &c.lf);
     c.out.push_str("%%EndProlog\n%%Page: 1 1\nsave\n");
     if let Some(bg) = background {
         c.rgb(bg);
         let _ = writeln!(c.out, "0 0 {} {} rectfill", n(w), n(h));
     }
-    draw_prims(&mut c, scene, embeds);
+    c.out.push_str(&body);
     c.out.push_str("restore\nshowpage\n%%Trailer\n%%EOF\n");
     c.out
 }
@@ -627,9 +865,13 @@ pub fn to_ps(
         min_x: b.min.x,
         max_y: b.max.y,
         date: meta.date.as_ref().map(|d| d.iso()),
+        lf: Vec::new(),
+        lf_outline: Default::default(),
     };
+    (c.lf, c.lf_outline) = plan_local_fonts(scene);
     draw_prims(&mut c, scene, embeds);
     let body = std::mem::take(&mut c.out);
+    let lf = std::mem::take(&mut c.lf);
     let (pw, ph) = (layout.width, layout.height);
     let o = &mut c.out;
     o.push_str("%!PS-Adobe-3.0\n");
@@ -650,6 +892,7 @@ pub fn to_ps(
     utf8_cmap(o, &fonts);
     prolog(o);
     utf8_composefonts(o, &fonts);
+    type42_fonts(o, &lf);
     o.push_str("%%EndProlog\n");
     for (i, (tx, ty)) in layout.pages.iter().enumerate() {
         let _ = writeln!(o, "%%Page: {} {}\nsave", i + 1, i + 1);

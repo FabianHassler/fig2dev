@@ -1,6 +1,7 @@
 //! PDF backend (pdf-writer). Text uses the standard 14 PDF fonts; characters
 //! beyond WinAnsi are set in Type 3 fonts built from RustFig's glyph outlines.
 
+use super::localfont::{subset_tag, GlyphSet};
 use super::output::{Meta, CREATOR};
 use super::pattern::{coverage, PatternFrame};
 use super::{Fill, PageLayout, Prim, Rgba, Scene, Stroke, SubPath, TextPrim};
@@ -194,6 +195,8 @@ struct Ctx {
     min_x: f64,
     max_y: f64,
     t3: Vec<T3Font>,
+    /// Installed fonts (`rustfig-font:` comments), embedded as subsets.
+    lf: Vec<GlyphSet>,
 }
 
 impl Ctx {
@@ -293,7 +296,207 @@ impl Ctx {
     }
 }
 
+/// The text's glyph outlines, filled (for an installed font that may not be
+/// embedded).
+fn outline_text(c: &mut Ctx, t: &TextPrim) {
+    use figbase::text::PathOp;
+    let (ops, _, _) = super::raster::text_ops_fig(t);
+    c.fill_rgb(t.color);
+    let mut cur = (0.0f32, 0.0f32);
+    let mut start = cur;
+    for op in ops {
+        match op {
+            PathOp::Move(x, y) => {
+                cur = c.p(Point::new(x, y));
+                start = cur;
+                c.c.move_to(cur.0, cur.1);
+            }
+            PathOp::Line(x, y) => {
+                cur = c.p(Point::new(x, y));
+                c.c.line_to(cur.0, cur.1);
+            }
+            PathOp::Quad(a, b, x, y) => {
+                let (q, e) = (c.p(Point::new(a, b)), c.p(Point::new(x, y)));
+                let c1 = (cur.0 + 2.0 / 3.0 * (q.0 - cur.0), cur.1 + 2.0 / 3.0 * (q.1 - cur.1));
+                let c2 = (e.0 + 2.0 / 3.0 * (q.0 - e.0), e.1 + 2.0 / 3.0 * (q.1 - e.1));
+                c.c.cubic_to(c1.0, c1.1, c2.0, c2.1, e.0, e.1);
+                cur = e;
+            }
+            PathOp::Cubic(a, b, cc, d, x, y) => {
+                let (p1, p2, e) = (c.p(Point::new(a, b)), c.p(Point::new(cc, d)), c.p(Point::new(x, y)));
+                c.c.cubic_to(p1.0, p1.1, p2.0, p2.1, e.0, e.1);
+                cur = e;
+            }
+            PathOp::Close => {
+                c.c.close_path();
+                cur = start;
+            }
+        }
+    }
+    c.c.fill_nonzero();
+}
+
+/// Text in an installed font: a CID font (Identity-H) with a subset of the
+/// font embedded; the widths come from the font.
+fn local_text(c: &mut Ctx, t: &TextPrim, font: &std::sync::Arc<figbase::text::LocalFont>) {
+    let size = super::font_px(t.size) * c.k;
+    let (x, y) = c.p(t.origin);
+    let (s, co) = t.angle.sin_cos();
+    c.fill_rgb(t.color);
+    let fi = match c.lf.iter().position(|g| g.font.name == font.name) {
+        Some(i) => i,
+        None => {
+            c.lf.push(GlyphSet::new(font.clone()));
+            c.lf.len() - 1
+        }
+    };
+    for (i, line) in t.text.split('\n').enumerate() {
+        let mut bytes: Vec<u8> = Vec::new();
+        let mut adv = 0.0;
+        if let Some(set) = c.lf.get_mut(fi) {
+            for ch in line.chars() {
+                // 65535 glyph ids is far beyond what a figure uses.
+                let Some((gid, a)) = set.code(ch, 60_000) else {
+                    continue;
+                };
+                bytes.extend_from_slice(&gid.to_be_bytes());
+                adv += a;
+            }
+        }
+        let w = adv / 1000.0 * size;
+        let dx = match t.justify {
+            Justify::Left => 0.0,
+            Justify::Center => -w / 2.0,
+            Justify::Right => -w,
+        };
+        let dy = -(i as f64) * size * figbase::text::LINE_SPACING;
+        let ox = f64::from(x) + dx * co - dy * s;
+        let oy = f64::from(y) + dx * s + dy * co;
+        c.c.begin_text();
+        c.c.set_font(Name(format!("LF{fi}").as_bytes()), f(size));
+        c.c.set_text_matrix([f(co), f(s), f(-s), f(co), f(ox), f(oy)]);
+        c.c.show(Str(&bytes));
+        c.c.end_text();
+    }
+}
+
+/// The objects of an embedded installed font: a Type0 font over a CID font
+/// (TrueType or CFF), its descriptor, the subset file and a ToUnicode map.
+fn local_font_objects(pdf: &mut Pdf, set: &GlyphSet, ids: [Ref; 5], data: &[u8]) {
+    use pdf_writer::types::{CidFontType, FontFlags};
+    let [type0, cid, desc, file, tou] = ids;
+    let font = &set.font;
+    let ps_name: String = font
+        .post_script_name
+        .chars()
+        .filter(|ch| ch.is_ascii_graphic() && !"()<>[]{}/%".contains(*ch))
+        .collect();
+    let base = format!(
+        "{}+{}",
+        subset_tag(&font.name, &set.used),
+        if ps_name.is_empty() { "LocalFont" } else { &ps_name }
+    );
+    let (upm, asc, dsc, bbox, ital, cap) = match font.face() {
+        Some(face) => {
+            let u = f32::from(face.units_per_em().max(1)) / 1000.0;
+            let b = face.global_bounding_box();
+            (
+                u,
+                f32::from(face.ascender()),
+                f32::from(face.descender()),
+                [
+                    f32::from(b.x_min),
+                    f32::from(b.y_min),
+                    f32::from(b.x_max),
+                    f32::from(b.y_max),
+                ],
+                face.italic_angle(),
+                face.capital_height().map_or(f32::from(face.ascender()), f32::from),
+            )
+        }
+        None => (1.0, 800.0, -200.0, [0.0, -200.0, 1000.0, 900.0], 0.0, 700.0),
+    };
+    let sc = |v: f32| v / upm;
+    pdf.type0_font(type0)
+        .base_font(Name(base.as_bytes()))
+        .encoding_predefined(Name(b"Identity-H"))
+        .descendant_font(cid)
+        .to_unicode(tou);
+    {
+        let mut c = pdf.cid_font(cid);
+        c.subtype(if font.cff {
+            CidFontType::Type0
+        } else {
+            CidFontType::Type2
+        });
+        c.base_font(Name(base.as_bytes()));
+        c.system_info(SystemInfo {
+            registry: Str(b"Adobe"),
+            ordering: Str(b"Identity"),
+            supplement: 0,
+        });
+        c.font_descriptor(desc);
+        c.default_width(0.0);
+        if !font.cff {
+            c.cid_to_gid_map_predefined(Name(b"Identity"));
+        }
+        let mut w = c.widths();
+        for &(gid, _, adv) in &set.used {
+            w.consecutive(gid, [f(adv)]);
+        }
+    }
+    let mut flags = FontFlags::NON_SYMBOLIC;
+    if font.italic {
+        flags |= FontFlags::ITALIC;
+    }
+    {
+        let mut d = pdf.font_descriptor(desc);
+        d.name(Name(base.as_bytes()));
+        d.flags(flags);
+        d.bbox(PdfRect::new(sc(bbox[0]), sc(bbox[1]), sc(bbox[2]), sc(bbox[3])));
+        d.italic_angle(ital);
+        d.ascent(sc(asc));
+        d.descent(sc(dsc));
+        d.cap_height(sc(cap));
+        d.stem_v(if font.bold { 140.0 } else { 80.0 });
+        if font.cff {
+            d.font_file3(file);
+        } else {
+            d.font_file2(file);
+        }
+    }
+    let packed = miniz_oxide::deflate::compress_to_vec_zlib(data, 6);
+    let mut stream = pdf.stream(file, &packed);
+    stream.filter(Filter::FlateDecode);
+    if font.cff {
+        stream.pair(Name(b"Subtype"), Name(b"OpenType"));
+    } else {
+        stream.pair(Name(b"Length1"), i32::try_from(data.len()).unwrap_or(i32::MAX));
+    }
+    stream.finish();
+    let mut cmap = UnicodeCmap::<u16>::new(
+        Name(b"Adobe-Identity-UCS"),
+        SystemInfo {
+            registry: Str(b"Adobe"),
+            ordering: Str(b"UCS"),
+            supplement: 0,
+        },
+    );
+    for &(gid, ch, _) in &set.used {
+        cmap.pair(gid, ch);
+    }
+    pdf.stream(tou, &cmap.finish());
+}
+
 fn text(c: &mut Ctx, t: &TextPrim) {
+    if let Some(font) = t.local() {
+        if font.embeddable {
+            local_text(c, t, &font);
+        } else {
+            outline_text(c, t);
+        }
+        return;
+    }
     let idx = base14_index(t);
     let Some((res, _)) = BASE14.get(idx) else {
         return;
@@ -498,6 +701,7 @@ pub fn to_pdf_pages(
     let k = 72.0 / 1200.0 * scale;
     let (w, h) = (b.width() * k, b.height() * k);
     let mut c = Ctx {
+        lf: Vec::new(),
         c: Content::new(),
         k,
         min_x: b.min.x,
@@ -646,6 +850,21 @@ pub fn to_pdf_pages(
                 (font, tou, glyphs)
             })
             .collect();
+    // Installed fonts: subset, Type0 font, CID font, descriptor, file, ToUnicode.
+    let lf_subsets: Vec<Option<Vec<u8>>> = c.lf.iter().map(GlyphSet::subset).collect();
+    let lf_ids: Vec<[Ref; 5]> =
+        c.lf.iter()
+            .map(|_| {
+                let r = [0, 1, 2, 3, 4].map(|i| Ref::new(next + i));
+                next += 5;
+                r
+            })
+            .collect();
+    let minor = if c.lf.iter().any(|g| g.font.cff) {
+        minor.max(6)
+    } else {
+        minor
+    };
     pdf.set_version(1, minor);
     pdf.catalog(catalog_id).pages(tree_id);
     pdf.pages(tree_id)
@@ -664,6 +883,9 @@ pub fn to_pdf_pages(
             }
             for (i, (font, _, _)) in t3_ids.iter().enumerate() {
                 fonts.pair(Name(format!("T3_{i}").as_bytes()), *font);
+            }
+            for (i, ids) in lf_ids.iter().enumerate() {
+                fonts.pair(Name(format!("LF{i}").as_bytes()), ids[0]);
             }
         }
         {
@@ -726,6 +948,11 @@ pub fn to_pdf_pages(
         pdf.stream(*tou_id, &cmap.finish());
         for (g, id) in fnt.glyphs.iter().zip(glyph_ids) {
             pdf.stream(*id, &g.proc_);
+        }
+    }
+    for ((set, ids), subset) in c.lf.iter().zip(&lf_ids).zip(&lf_subsets) {
+        if let Some(data) = subset {
+            local_font_objects(&mut pdf, set, *ids, data);
         }
     }
     let body = c.c.finish();

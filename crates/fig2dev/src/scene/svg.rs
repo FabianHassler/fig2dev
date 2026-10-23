@@ -216,7 +216,24 @@ fn text_body(t: &TextPrim, line: &str) -> String {
 }
 
 fn text(out: &mut String, t: &TextPrim) {
-    let (fam, bold, italic) = css_font(t);
+    let (fam, mut bold, mut italic) = css_font(t);
+    // An installed font (`rustfig-font:` comment): its family first, the
+    // Fig font's families as the fallback.
+    let fam_owned;
+    let fam: &str = match t.local() {
+        Some(lf) => {
+            bold = lf.bold;
+            italic = lf.italic;
+            let family: String = lf
+                .family
+                .chars()
+                .filter(|c| !matches!(c, '\'' | '"' | '<' | '>' | '&' | '\\') && !c.is_control())
+                .collect();
+            fam_owned = format!("'{family}', {fam}");
+            &fam_owned
+        }
+        None => fam,
+    };
     let anchor = match t.justify {
         Justify::Left => "start",
         Justify::Center => "middle",
