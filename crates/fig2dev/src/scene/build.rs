@@ -654,7 +654,7 @@ impl Builder {
         );
     }
 
-    pub fn text(&mut self, ctx: &Ctx, t: &f::Text) {
+    pub fn text(&mut self, ctx: &mut Ctx, t: &f::Text) {
         // RustFig's flags: bits, even for −1.
         if self.text.genps && t.hidden_text() {
             return;
@@ -674,6 +674,30 @@ impl Builder {
             }
         }
         let finite = |v: f64, d: f64| if v.is_finite() { v } else { d };
+        // RustFig's `rustfig-font:` comment: an installed font, unless the
+        // font was replaced by an option or is not installed.
+        let local_font = if self.text.font.is_some() && font != t.font {
+            None
+        } else {
+            t.comments
+                .iter()
+                .find_map(|c| figbase::text::parse_local_font_comment(&c.text))
+                .and_then(|name| {
+                    if let Some(lf) = figbase::text::find_local_font(name) {
+                        if !lf.embeddable {
+                            ctx.warn(format!(
+                                "Font '{name}' does not allow embedding; PDF and PostScript output draws its text as outlines"
+                            ));
+                        }
+                        Some(name.to_string())
+                    } else {
+                        ctx.warn(format!(
+                            "Font '{name}' (comment of a text) is not installed, using the Fig font instead"
+                        ));
+                        None
+                    }
+                })
+        };
         let scale = Some(self.text.scale)
             .filter(|s| s.is_finite() && *s > 0.0)
             .unwrap_or(1.0);
@@ -687,6 +711,7 @@ impl Builder {
             text: t.cstring.clone(),
             color: Rgba::opaque(color(ctx, t.color)),
             special: t.special_text(),
+            local_font,
         }));
     }
 

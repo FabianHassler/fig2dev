@@ -9,6 +9,7 @@
 //! italic styles.
 
 mod fonts;
+mod local;
 mod symbols;
 mod sysfonts;
 
@@ -16,6 +17,7 @@ pub use fonts::{
     latex_font_name, ps_font_display_name, ps_font_name, ps_font_number, FontRequest, Generic, LATEX_FONT_COUNT,
     PS_FONT_COUNT,
 };
+pub use local::{find_local_font, parse_comment as parse_local_font_comment, LocalFont};
 pub use symbols::{DINGBAT_CHAR, SYMBOL_CHAR};
 pub use sysfonts::{add_font_dirs, builtin_fonts, set_builtin_fonts};
 
@@ -159,12 +161,12 @@ fn glyph_of(face: &Face<'_>, ch: char, code: Option<u8>) -> Option<GlyphId> {
         .find_map(|st| st.glyph_index(0xF000 + u32::from(code)))
 }
 
-struct Builder<'a> {
-    ops: &'a mut Vec<PathOp>,
-    scale: f64,
-    dx: f64,
-    dy: f64,
-    skew: f64,
+pub(crate) struct Builder<'a> {
+    pub(crate) ops: &'a mut Vec<PathOp>,
+    pub(crate) scale: f64,
+    pub(crate) dx: f64,
+    pub(crate) dy: f64,
+    pub(crate) skew: f64,
 }
 
 impl Builder<'_> {

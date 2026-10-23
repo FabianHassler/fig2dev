@@ -16,9 +16,13 @@ figbase.workspace = true
 image.workspace = true
 tiny-skia.workspace = true
 pdf-writer.workspace = true
+subsetter.workspace = true
 hayro.workspace = true
 hayro-write.workspace = true
 miniz_oxide = "0.8"
 encoding_rs = "0.8"
 png = { version = "0.18", default-features = false }
 gif = { version = "0.14", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+fontdb.workspace = true

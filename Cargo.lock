@@ -210,6 +210,7 @@ version = "0.7.0"
 dependencies = [
  "encoding_rs",
  "figbase",
+ "fontdb",
  "gif",
  "hayro",
  "hayro-write",
@@ -217,6 +218,7 @@ dependencies = [
  "miniz_oxide 0.8.9",
  "pdf-writer",
  "png 0.18.1",
+ "subsetter",
  "tiny-skia",
 ]
 
@@ -837,6 +839,15 @@ name = "strict-num"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6637bab7722d379c8b41ba849228d680cc12d0a45ba1fa2b48f2a30577a06731"
+
+[[package]]
+name = "subsetter"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38803281d1c23166c5ebcb455439a5d2afe711cc909cf88af72448c297756ad6"
+dependencies = [
+ "rustc-hash",
+]
 
 [[package]]
 name = "syn"

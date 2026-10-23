@@ -17,6 +17,7 @@ pub mod build;
 pub mod eps;
 pub mod grid;
 pub mod latex_box;
+mod localfont;
 pub mod output;
 pub mod page;
 pub mod pattern;
@@ -166,9 +167,17 @@ pub struct TextPrim {
     /// The figure's special-text flag (`^`, `_` and `$` mean something to
     /// the SVG writer).
     pub special: bool,
+    /// An installed font named by the text's `rustfig-font:` comment (found
+    /// installed; `font` is still the Fig number that is the fallback).
+    pub local_font: Option<String>,
 }
 
 impl TextPrim {
+    /// The installed face of [`TextPrim::local_font`].
+    pub fn local(&self) -> Option<Arc<figbase::text::LocalFont>> {
+        figbase::text::find_local_font(self.local_font.as_deref()?)
+    }
+
     pub fn request(&self) -> figbase::text::FontRequest {
         figbase::text::FontRequest::for_fig(self.font, self.postscript)
     }
