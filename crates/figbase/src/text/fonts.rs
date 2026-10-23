@@ -126,7 +126,7 @@ pub fn latex_font_name(n: i32) -> &'static str {
 }
 
 /// Generic font families used as fallbacks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Generic {
     Serif,
     Sans,
@@ -151,6 +151,9 @@ pub struct FontRequest {
     pub generic: Generic,
     pub bold: bool,
     pub italic: bool,
+    /// The Fig PostScript font number (0-34) this request is for; `None`
+    /// for LaTeX fonts. Selects the installed family (see `sysfonts`).
+    pub ps_font: Option<i32>,
 }
 
 impl FontRequest {
@@ -175,6 +178,7 @@ impl FontRequest {
                 generic,
                 bold,
                 italic,
+                ps_font: None,
             };
         }
         let n = if (0..PS_FONT_COUNT).contains(&font) { font } else { 0 };
@@ -221,6 +225,7 @@ impl FontRequest {
             generic,
             bold,
             italic,
+            ps_font: Some(n),
         }
     }
 }

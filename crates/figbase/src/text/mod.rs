@@ -1,19 +1,23 @@
 //! Fig text: the Fig font tables, font selection, text measurement and
 //! glyph outlines.
 //!
-//! Fonts come from the optional craft-fonts collection ([`CRAFT_FONTS`],
-//! embedded at build time through `CRAFT_FONTS_DIR`). Without it, figbase
-//! uses the open fonts shipped in the `epaint_default_fonts` crate and
-//! synthesises bold and italic styles.
+//! Fonts: each PostScript font is looked up among the installed fonts
+//! (`fontdb`; see [`sysfonts`](self) for the candidate families and TeX Gyre
+//! search); without a match, or with [`set_builtin_fonts`] /
+//! `FIG2DEV_BUILTIN_FONTS=1` (always on wasm32), figbase uses the open fonts
+//! shipped in the `epaint_default_fonts` crate and synthesises bold and
+//! italic styles.
 
 mod fonts;
+mod symbols;
+mod sysfonts;
 
 pub use fonts::{
     latex_font_name, ps_font_display_name, ps_font_name, ps_font_number, FontRequest, Generic, LATEX_FONT_COUNT,
     PS_FONT_COUNT,
 };
-
-include!(concat!(env!("OUT_DIR"), "/craft_fonts.rs"));
+pub use symbols::{DINGBAT_CHAR, SYMBOL_CHAR};
+pub use sysfonts::{add_font_dirs, builtin_fonts, set_builtin_fonts};
 
 use std::sync::OnceLock;
 use ttf_parser::{Face, GlyphId, OutlineBuilder};
@@ -61,12 +65,14 @@ pub struct Shaped {
     pub synthetic_bold: bool,
 }
 
-struct LoadedFace {
-    face: Face<'static>,
+pub(crate) struct LoadedFace {
+    pub(crate) face: Face<'static>,
     /// Lower-case family + file name, for matching.
-    key: String,
-    bold: bool,
-    italic: bool,
+    pub(crate) key: String,
+    pub(crate) bold: bool,
+    pub(crate) italic: bool,
+    /// An installed font (not one of the built-in fallbacks).
+    pub(crate) system: bool,
 }
 
 struct Library {
@@ -77,46 +83,34 @@ fn library() -> &'static Library {
     static LIB: OnceLock<Library> = OnceLock::new();
     LIB.get_or_init(|| {
         let mut faces = Vec::new();
-        let mut add = |stem: &str, bytes: &'static [u8]| {
+        for (key, bytes) in [
+            ("fallback-sans ubuntu", epaint_default_fonts::UBUNTU_LIGHT),
+            ("fallback-mono hack", epaint_default_fonts::HACK_REGULAR),
+        ] {
             let Ok(face) = Face::parse(bytes, 0) else {
-                return;
+                continue;
             };
-            let mut family = String::new();
-            for name in face.names() {
-                if name.name_id == ttf_parser::name_id::FULL_NAME || name.name_id == ttf_parser::name_id::FAMILY {
-                    if let Some(s) = name.to_string() {
-                        family.push_str(&s);
-                        family.push(' ');
-                    }
-                }
-            }
-            let key = format!("{family} {stem}").to_lowercase();
-            let bold = face.is_bold() || key.contains("bold") || key.contains("demi") || key.contains("heavy");
-            let italic = face.is_italic() || face.is_oblique() || key.contains("italic") || key.contains("oblique");
+            let (bold, italic) = (face.is_bold(), face.is_italic() || face.is_oblique());
             faces.push(LoadedFace {
                 face,
-                key,
+                key: key.to_string(),
                 bold,
                 italic,
+                system: false,
             });
-        };
-        for (stem, bytes) in CRAFT_FONTS {
-            add(stem, bytes);
         }
-        add("fallback-sans ubuntu", epaint_default_fonts::UBUNTU_LIGHT);
-        add("fallback-mono hack", epaint_default_fonts::HACK_REGULAR);
         Library { faces }
     })
 }
 
-/// Number of usable font faces (craft fonts plus fallbacks).
+/// Number of usable font faces (the built-in fallbacks).
 pub fn face_count() -> usize {
     library().faces.len()
 }
 
-/// Pick the best face for a request; returns (face index, needs synthetic
-/// bold, needs synthetic italic).
-fn pick(req: &FontRequest) -> Option<(usize, bool, bool)> {
+/// Pick the best built-in face for a request; returns (face, needs
+/// synthetic bold, needs synthetic italic).
+fn pick_builtin(req: &FontRequest) -> Option<(&'static LoadedFace, bool, bool)> {
     let lib = library();
     let mut best: Option<(i32, usize)> = None;
     for (i, f) in lib.faces.iter().enumerate() {
@@ -141,7 +135,28 @@ fn pick(req: &FontRequest) -> Option<(usize, bool, bool)> {
     }
     let (_, i) = best?;
     let f = lib.faces.get(i)?;
-    Some((i, req.bold && !f.bold, req.italic && !f.italic))
+    Some((f, req.bold && !f.bold, req.italic && !f.italic))
+}
+
+/// The face for a request: an installed one when found, else built-in.
+fn select(req: &FontRequest) -> Option<(&'static LoadedFace, bool, bool)> {
+    if let Some(p) = sysfonts::pick_system(req) {
+        return Some((p.face, p.synth_bold, p.synth_italic));
+    }
+    pick_builtin(req)
+}
+
+/// The glyph of `ch` in `face`; for Symbol-encoded fonts (a (3,0) cmap) the
+/// private-use slot 0xF000 + `code`.
+fn glyph_of(face: &Face<'_>, ch: char, code: Option<u8>) -> Option<GlyphId> {
+    if let Some(g) = face.glyph_index(ch) {
+        return Some(g);
+    }
+    let code = code?;
+    let cmap = face.tables().cmap?;
+    cmap.subtables
+        .into_iter()
+        .find_map(|st| st.glyph_index(0xF000 + u32::from(code)))
 }
 
 struct Builder<'a> {
@@ -192,8 +207,7 @@ fn layout(req: &FontRequest, size_pt: f64, text: &str, outlines: bool) -> Shaped
     };
     let em = size * FIG_PER_POINT;
     let mut out = Shaped::default();
-    let lib = library();
-    let Some((idx, synth_bold, synth_italic)) = pick(req) else {
+    let Some((lf, synth_bold, synth_italic)) = select(req) else {
         // No font at all: estimate.
         let widths: Vec<f64> = text.split('\n').map(|l| l.chars().count() as f64 * em * 0.5).collect();
         out.metrics = Metrics {
@@ -205,18 +219,18 @@ fn layout(req: &FontRequest, size_pt: f64, text: &str, outlines: bool) -> Shaped
         out.line_widths = widths;
         return out;
     };
-    let Some(lf) = lib.faces.get(idx) else {
-        return out;
-    };
     let face = &lf.face;
+    // Symbol and ZapfDingbats codes are Unicode in an installed font.
+    let table: Option<&[u32; 256]> = match (lf.system, req.ps_font) {
+        (true, Some(32)) => Some(&SYMBOL_CHAR),
+        (true, Some(34)) => Some(&DINGBAT_CHAR),
+        _ => None,
+    };
+    let chain: std::cell::OnceCell<Vec<&'static LoadedFace>> = std::cell::OnceCell::new();
+    let ubuntu = library().faces.iter().find(|f| f.key.contains("fallback-sans"));
     let scale = em / f64::from(face.units_per_em().max(1));
     let ascent = f64::from(face.ascender()) * scale;
     let descent = -f64::from(face.descender()) * scale;
-    let fallback = lib
-        .faces
-        .iter()
-        .find(|f| f.key.contains("fallback-sans"))
-        .map(|f| &f.face);
     let mut count = 0usize;
     let mut y = 0.0;
     let mut nlines = 0usize;
@@ -230,11 +244,29 @@ fn layout(req: &FontRequest, size_pt: f64, text: &str, outlines: bool) -> Shaped
             if count > MAX_CHARS {
                 break;
             }
-            let (f, gid) = match face.glyph_index(ch) {
+            let (ch, code) = match (table, u8::try_from(u32::from(ch))) {
+                (Some(t), Ok(b)) => match t.get(usize::from(b)).copied().and_then(char::from_u32) {
+                    Some(u) if u != '\0' => (u, Some(b)),
+                    _ => (ch, Some(b)),
+                },
+                _ => (ch, None),
+            };
+            let (f, gid): (&Face<'static>, GlyphId) = match glyph_of(face, ch, code) {
                 Some(g) => (face, g),
-                None => fallback
-                    .and_then(|fb| fb.glyph_index(ch).map(|g| (fb, g)))
-                    .unwrap_or((face, GlyphId(0))),
+                None => {
+                    let sys = chain.get_or_init(|| {
+                        if lf.system {
+                            sysfonts::symbol_chain().iter().copied().collect()
+                        } else {
+                            Vec::new()
+                        }
+                    });
+                    sys.iter()
+                        .copied()
+                        .chain(ubuntu)
+                        .find_map(|fb| fb.face.glyph_index(ch).map(|g| (&fb.face, g)))
+                        .unwrap_or((face, GlyphId(0)))
+                }
             };
             let fscale = em / f64::from(f.units_per_em().max(1));
             if let (Some(p), true) = (prev, std::ptr::eq(f, face)) {

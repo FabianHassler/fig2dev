@@ -33,8 +33,8 @@ colour tables are generated in code.
 
 Fonts used at run time
 ----------------------
-- Optional: fonts from storytold/craft-fonts, embedded only when the build
-  sets CRAFT_FONTS_DIR; their licences ship with that repository.
+- Installed fonts found at run time with `fontdb` (system fonts, TeX Gyre from
+  a TeX installation); none is bundled or redistributed.
 - Fallback: Ubuntu Light (Ubuntu Font Licence 1.0) and Hack (MIT/Bitstream
   Vera licence), bundled inside the `epaint_default_fonts` crate (a
   dependency, MIT OR Apache-2.0).

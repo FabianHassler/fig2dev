@@ -89,7 +89,8 @@ fn sk_stroke(s: &Stroke, scale: f64, min_px: f64) -> tiny_skia::Stroke {
     };
     tiny_skia::Stroke {
         width: f(width),
-        miter_limit: 4.0,
+        // genps.c: `10 setmiterlimit`.
+        miter_limit: 10.0,
         line_cap: match s.cap {
             CapStyle::Butt => LineCap::Butt,
             CapStyle::Round => LineCap::Round,
@@ -599,5 +600,23 @@ mod tests {
         let scene = Scene::default();
         let r = Rect::new(Point::ZERO, Point::new(1e9, 1e9));
         assert!(render_region(&scene, &r, 1.0, None, PatternFrame::screen()).is_err());
+    }
+}
+
+#[cfg(test)]
+mod miter_tests {
+    use super::*;
+
+    #[test]
+    fn miter_limit_is_the_postscript_one() {
+        // genps.c: `10 setmiterlimit`.
+        let s = Stroke {
+            color: Rgba::default(),
+            width: 1.0,
+            dash: Vec::new(),
+            cap: CapStyle::Butt,
+            join: JoinStyle::Miter,
+        };
+        assert!((sk_stroke(&s, 1.0, 0.0).miter_limit - 10.0).abs() < f32::EPSILON);
     }
 }
