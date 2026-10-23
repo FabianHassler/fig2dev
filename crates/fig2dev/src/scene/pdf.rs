@@ -78,7 +78,7 @@ fn win_ansi(s: &str) -> Vec<u8> {
 }
 
 /// A Type 3 font for characters beyond WinAnsi: the glyph outlines of
-/// RustFig's own fonts ([`figbase::text`]: craft-fonts when built in, else
+/// RustFig's own fonts ([`figbase::text`]: installed fonts, else
 /// the fallback faces), 1000 units to the em, with a `ToUnicode` map so the
 /// text stays selectable. One font holds up to 255 characters of one Fig
 /// font.

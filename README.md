@@ -35,8 +35,6 @@ cargo install --locked --path apps/fig2dev
 
 Either way the program is installed as `fig2dev` in `~/.cargo/bin` (on Windows `%USERPROFILE%\.cargo\bin`), which rustup puts on your `PATH`. If the C fig2dev is installed too (for example from Homebrew or a Linux package), the one that comes first on `PATH` runs; `which -a fig2dev` lists both. Remove it again with `cargo uninstall fig2dev-cli`.
 
-To embed the craft-fonts collection (see below), set `CRAFT_FONTS_DIR=/abs/path/to/craft-fonts` for the `cargo install` command.
-
 ## Languages and status
 
 Every fig2dev language is ported: PostScript, EPS, PDF, SVG, PNG, GIF, JPEG, TIFF, PPM, PCX, XBM, XPM, LaTeX picture, epic, eepic, eepicemu, PiCTeX, TeXtyl, tpic, pic, pstex, pdftex, pspdftex, pict2e, TikZ, PSTricks, LaTeX box, CGM, HPGL, DXF, MetaPost, METAFONT, ge, image map, Gerber, shape, EMF, Tk, Perl-Tk and AutoCAD slides (`sld`). Input encodings (`-E`) include UTF-8, ISO-8859-N, KOI8, CP125x, Mac and CJK, through `encoding_rs`.
@@ -56,7 +54,7 @@ cargo test --workspace
 cargo xtask licences
 ```
 
-Optional: `CRAFT_FONTS_DIR=/abs/path/to/craft-fonts cargo build` embeds the [craft-fonts](https://github.com/storytold/craft-fonts) collection (see `crates/figbase/build.rs`). Without it, Ubuntu Light and Hack from the `epaint_default_fonts` crate are used. No font files belong in this repository.
+Text uses installed fonts (URW/Nimbus, macOS and Windows system faces, TeX Gyre from a TeX installation, found with `fontdb`) and falls back to Ubuntu Light and Hack from the `epaint_default_fonts` crate. `FIG2DEV_BUILTIN_FONTS=1` (or `figbase::text::set_builtin_fonts(true)`) forces the built-in fonts, which tests and reference comparisons use; `figbase::text::add_font_dirs` adds font folders. No font files belong in this repository.
 
 Tests that compare with the C program or its test data skip when these are missing:
 
