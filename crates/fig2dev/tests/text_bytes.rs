@@ -128,3 +128,44 @@ fn unknown_input_charset_still_warns_and_keeps_bytes() {
     let out = run("latex", &f, Some("KOI8R"));
     assert!(has(&out, b"a\xe9b"));
 }
+
+/// `\ooo` and `\c` escapes as read.c's read_textobject converts them; the
+/// expected bytes were taken from fig2dev 3.2.9a (`-L latex`, macOS). The
+/// text goes before the terminating `\001`.
+#[test]
+fn escape_edge_cases_as_read_c() {
+    let cases: &[(&[u8], &[u8])] = &[
+        (
+            b"a\\\\b\\\\\\\\c",
+            b"a\\textbackslash b\\textbackslash \\textbackslash c}%\n",
+        ),
+        (b"a\\0b", b"a0b}%\n"),        // short escape: \0 is the char '0'
+        (b"a\\000b", b"a}%\n"),        // \000 ends the C string
+        (b"a\\400b", b"a}%\n"),        // 0o400 wraps to 0
+        (b"a\\777z", b"a\xffz}%\n"),   // 0o777 wraps to 0xff
+        (b"a\\12xyz", b"a\n"),         // 3 chars consumed, value 10
+        (b"a\\1", b"a1}%\n"),          // too short: unescaped
+        (b"a\\18bcd", b"a\x01cd}%\n"), // \18b: 2 digits, 3 chars consumed
+        (b"a\\q\\ez", b"aqez}%\n"),    // escaped char is unescaped
+        (b"tail\\\\", b"tail\\textbackslash }%\n"),
+        (b"\\351\\251\\100", b"\xe9\xa9@}%\n"),
+        (b"a\\1234", b"aS4}%\n"),
+    ];
+    for (text, want) in cases {
+        let mut body = b"4 0 0 50 -1 0 12 0.0 4 135 900 1200 1200 ".to_vec();
+        body.extend_from_slice(text);
+        body.extend_from_slice(b"\\001\n");
+        let out = run("latex", &fig("", &body), None);
+        let tag = b"{0,0,0}";
+        let at = out.windows(tag.len()).position(|w| w == tag).unwrap() + tag.len();
+        assert_eq!(&out[at..at + want.len()], *want, "{}", String::from_utf8_lossy(text));
+    }
+}
+
+#[test]
+fn a_non_octal_digit_after_a_backslash_is_a_read_error() {
+    // `\8bc`: isdigit but sscanf("%3hho") fails -> "Error in parsing text string".
+    let f = fig("", b"4 0 0 50 -1 0 12 0.0 4 135 900 1200 1200 a\\8bc\\001\n");
+    let mut ctx = Ctx::default();
+    assert!(readfp_fig(&mut ctx, &f).is_err());
+}
