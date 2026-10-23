@@ -259,7 +259,13 @@ fn an_unseekable_output_keeps_the_first_header() {
         ctx.font_size *= ctx.fontmag;
         let objects = readfp_fig(&mut ctx, format!("{HDR}{BOX}").as_bytes()).unwrap();
         let status = convert(&mut ctx, dev.as_mut(), &objects).unwrap();
-        (status.output, status.exit, ctx.messages)
+        // Without $LANG (Windows runners) fig2dev also notes the C locale.
+        let msgs: Vec<String> = ctx
+            .messages
+            .into_iter()
+            .filter(|m| !m.contains("LANG not defined"))
+            .collect();
+        (status.output, status.exit, msgs)
     };
     let (file, exit, msgs) = run(false);
     assert_eq!((exit, msgs.len()), (0, 0));
