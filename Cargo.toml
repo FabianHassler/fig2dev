@@ -4,7 +4,7 @@ members = ["crates/figbase", "crates/fig2dev", "apps/fig2dev", "xtask"]
 default-members = ["apps/fig2dev"]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/FabianHassler/fig2dev"

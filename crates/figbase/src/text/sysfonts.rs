@@ -335,12 +335,14 @@ impl Resolver {
 
 // ---- TeX Gyre discovery ----
 
+#[cfg(any(not(target_arch = "wasm32"), test))]
 const GYRE_SUBDIR: &str = "fonts/opentype/public/tex-gyre";
 
 /// TeX Gyre font folders under the given TeX roots (`texmf-dist`-style
 /// directories). A root may also be a folder of year directories (MacTeX's
 /// `/usr/local/texlive`, TeX Live's `/usr/share/texlive`): each child with a
 /// `texmf-dist` is searched too. Only existing folders are returned.
+#[cfg(any(not(target_arch = "wasm32"), test))]
 pub(crate) fn texgyre_dirs_in(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = Vec::new();
     let mut push = |p: PathBuf| {
@@ -363,6 +365,7 @@ pub(crate) fn texgyre_dirs_in(roots: &[PathBuf]) -> Vec<PathBuf> {
 }
 
 /// The usual TeX roots of this machine (no process is run).
+#[cfg(any(not(target_arch = "wasm32"), test))]
 pub(crate) fn default_tex_roots() -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = [
         "/usr/local/texlive",
