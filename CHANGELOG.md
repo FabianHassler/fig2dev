@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 — 2026-10-23
 
 - Installed fonts per text (RustFig F7): a text whose comment is `# rustfig-font: <Family Style>` is set in that installed font (found through figbase's `fontdb`; new `figbase::text::{find_local_font, LocalFont, parse_local_font_comment}`, `TextPrim::local_font`), with the Fig font number as the fallback. PDF embeds a subset (CID font, Identity-H, TrueType `FontFile2` or OpenType-CFF `FontFile3`, widths and ToUnicode from the font); PostScript and EPS embed TrueType subsets as Type 42 fonts and draw CFF fonts as outlines; SVG writes `font-family=\"'Family', <the Fig font's families>\"` (no font data embedded); bitmaps use the font's outlines. A font whose `fsType` forbids embedding (restricted licence, no subsetting, bitmaps only) is drawn as outlines in PDF and PostScript, with a message. A family that is not installed falls back to the Fig font with a message (stderr); the LaTeX-family drivers ignore the comment and keep the Fig number. Output for figures without the comment is unchanged. New dependency: `subsetter` 0.2 (typst's font subsetter, default features off, so no `skrifa`), and `fontdb` as a dev-dependency of `fig2dev`. Tests: `tests/local_fonts.rs` (use a font found at test time, skip without one).
 
