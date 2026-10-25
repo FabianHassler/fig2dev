@@ -213,6 +213,16 @@ impl Rgba {
 }
 
 impl Scene {
+    /// Render the PDF pictures (EPS pictures drawn by ghostscript) in grey
+    /// levels, for `-N`.
+    pub fn gray_pictures(&mut self) {
+        for p in &mut self.prims {
+            if let Prim::PdfPicture { pdf, .. } = p {
+                *pdf = std::sync::Arc::new(pdf.grayed());
+            }
+        }
+    }
+
     /// Every stroke, fill and text colour passed through `f`. Pictures keep
     /// theirs, as in fig2dev.
     pub fn map_colors(&mut self, f: impl Fn(Rgba) -> Rgba) {

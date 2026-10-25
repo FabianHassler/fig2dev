@@ -429,6 +429,7 @@ impl Driver for SceneDriver {
         let mut bg = o.background.map(Rgba::opaque);
         if o.grayscale {
             scene.map_colors(Rgba::luminance_gray);
+            scene.gray_pictures();
             bg = bg.map(Rgba::luminance_gray);
         }
         let transparent = o.transparent.or_else(|| transparent_color(ctx));

@@ -22,6 +22,16 @@ pub const MAX_EDGE: u32 = 20_000;
 /// Largest bitmap area produced by exports, in pixels.
 pub const MAX_PIXELS: u64 = 200_000_000;
 
+/// ghostscript's default `fill_adjust` (pixels): hard-edged shapes grow by
+/// this much on every side.
+const GS_FILL_ADJUST: f64 = 0.3;
+
+/// Hard-edged pictures: the least alpha (of 255) that makes a pixel of a
+/// rendered PDF picture opaque; the rest is dropped. Calibrated so that
+/// lines and glyphs come out as many black pixels as ghostscript's own
+/// hard-edged output (fig2dev's `bitmaps.at` counts them).
+const HARD_EDGE_MIN_ALPHA: u8 = 6;
+
 /// Rasterisation parameters.
 #[derive(Debug, Clone, Copy)]
 pub struct RasterOptions {
@@ -29,6 +39,10 @@ pub struct RasterOptions {
     pub transform: Affine,
     /// Thinnest stroke drawn, in pixels (1.0 on screen so hairlines show).
     pub min_line_px: f64,
+    /// Hard-edged output (no smoothing): shapes grow by this many pixels
+    /// on every side, as ghostscript's `fill_adjust` makes every pixel a
+    /// shape touches black; 0 when smoothed.
+    pub adjust_px: f64,
     /// Where fill patterns are anchored and how large their tiles are.
     pub pattern: PatternFrame,
 }
@@ -156,7 +170,8 @@ fn draw_path(
         None => {}
     }
     if let Some(s) = stroke {
-        let st = sk_stroke(s, scale, opts.min_line_px);
+        let mut st = sk_stroke(s, scale, opts.min_line_px);
+        st.width += f(2.0 * opts.adjust_px);
         pm.stroke_path(&path, &paint(s.color, aa), &st, Transform::identity(), None);
     }
 }
@@ -365,7 +380,17 @@ fn draw_pdf(pm: &mut Pixmap, corners: &[Point; 4], flipped: bool, pdf: &Arc<PdfP
             i
         }
     };
-    draw_image(pm, corners, &img, flipped, opts);
+    if opts.adjust_px <= 0.0 {
+        draw_image(pm, corners, &img, flipped, opts);
+    } else {
+        // Hard edges, as ghostscript draws the embedded picture: almost
+        // every pixel the picture's shapes touch is black.
+        let mut hard = (*img).clone();
+        for px in hard.rgba.as_chunks_mut::<4>().0.iter_mut() {
+            px[3] = if px[3] >= HARD_EDGE_MIN_ALPHA { 255 } else { 0 };
+        }
+        draw_image(pm, corners, &Arc::new(hard), flipped, opts);
+    }
 }
 
 /// Draw a scene onto a pixmap, antialiased.
@@ -480,6 +505,11 @@ pub fn render_sized(
         &RasterOptions {
             transform,
             min_line_px: 0.5 * ks,
+            adjust_px: if matches!(smoothing, Smoothing::None) {
+                GS_FILL_ADJUST
+            } else {
+                0.0
+            },
             pattern,
         },
         aa,

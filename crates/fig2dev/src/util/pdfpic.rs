@@ -50,6 +50,8 @@ pub struct PdfPicture {
     /// The page's size in points (rotation and crop box applied).
     width: f64,
     height: f64,
+    /// Rendered in grey (fig2dev's `-N`); the file is the same.
+    gray: bool,
 }
 
 impl std::fmt::Debug for PdfPicture {
@@ -93,7 +95,17 @@ impl PdfPicture {
             id,
             width,
             height,
+            gray: false,
         })
+    }
+
+    /// The same page, rendered in grey levels (`-N`).
+    pub fn grayed(&self) -> PdfPicture {
+        PdfPicture {
+            gray: true,
+            id: self.id ^ 0x6772_6179,
+            ..self.clone()
+        }
     }
 
     /// The page's size in points.
@@ -174,7 +186,14 @@ impl PdfPicture {
             if w == 0 || h == 0 {
                 return None;
             }
-            let rgba = pm.take_rgba8(hayro::vello_cpu::peniko::ImageAlphaType::Alpha);
+            let mut rgba = pm.take_rgba8(hayro::vello_cpu::peniko::ImageAlphaType::Alpha);
+            if self.gray {
+                for px in rgba.as_chunks_mut::<4>().0.iter_mut() {
+                    // the luminance of fig2dev's `-N` colours
+                    let v = (0.3 * f64::from(px[0]) + 0.59 * f64::from(px[1]) + 0.11 * f64::from(px[2])).round() as u8;
+                    px[..3].fill(v);
+                }
+            }
             (rgba.len() == (w as usize) * (h as usize) * 4).then_some(RasterImage {
                 width: w,
                 height: h,
@@ -230,6 +249,21 @@ pub(crate) mod tests {
             .as_bytes(),
         );
         out
+    }
+
+    #[test]
+    fn grayed_page_renders_in_grey() {
+        let p = PdfPicture::open(sample_pdf()).expect("sample opens");
+        let color = p.render(20, 20).expect("renders");
+        assert!(color.rgba.as_chunks::<4>().0.iter().any(|px| px[0] != px[2]));
+        let gray = p.grayed().render(20, 20).expect("renders");
+        assert!(gray
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|px| px[0] == px[1] && px[1] == px[2]));
+        assert_ne!(p.id(), p.grayed().id());
     }
 
     #[test]
