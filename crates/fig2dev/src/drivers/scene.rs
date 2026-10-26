@@ -298,6 +298,8 @@ impl Driver for SceneDriver {
             if c == 'S' && ![0, 1, 2, 4].contains(&v) {
                 return Err(format!("fig2dev: bad value for -S option: {a}, should be 1, 2 or 4"));
             }
+            // Capped like the library option (C takes any int).
+            let v = if c == 'b' { v.clamp(-1_000_000, 1_000_000) } else { v };
             int_arg = v.to_string();
             Some(int_arg.as_str())
         } else {
@@ -308,6 +310,16 @@ impl Driver for SceneDriver {
                 "fig2dev: option -{c} is not implemented in RustFig yet (plan task {task}); ignored"
             ));
             return Ok(());
+        }
+        if c == 'f' {
+            // genps_option: a font name that is not one of the 35 only
+            // warns (C then uses the name as given; here the default
+            // font stays).
+            let name = arg.unwrap_or("").trim();
+            if figbase::text::ps_font_number(name).is_none() {
+                ctx.warn(format!("warning: non-standard font name {name}"));
+                return Ok(());
+            }
         }
         if c == 'g' {
             // A colour lookup_X_color doesn't know is warned about and
@@ -422,9 +434,9 @@ impl Driver for SceneDriver {
         } else if self.format.is_bitmap() {
             // genbitmaps_start: `n = (int)(border_margin * THICK_SCALE + 0.9)`;
             // truncation towards zero, so -3 gives -44.
-            o.border.clamp(-72_000.0, 72_000.0).mul_add(15.0, 0.9).trunc()
+            o.border.clamp(-1.0e6, 1.0e6).mul_add(15.0, 0.9).trunc()
         } else {
-            o.border.clamp(0.0, 72_000.0) * 1200.0 / 72.0 / scale
+            o.border.clamp(-1.0e6, 1.0e6) * 1200.0 / 72.0 / scale
         };
         let mut bg = o.background.map(Rgba::opaque);
         if o.grayscale {

@@ -15,7 +15,6 @@
 // and messages.c (xfig licence, see LICENSE-xfig).
 
 use crate as fig2dev;
-use crate::options::{Arg, Support, OPTIONS};
 use std::io::{Read, Write};
 
 /// The program's standard streams (or whatever the caller gives it).
@@ -48,64 +47,55 @@ const OPTSTRING: &str = "AaB:b:C:cD:d:E:eFf:G:g:hi:jKkL:l:Mm:Nn:OoPp:q:R:rS:s:Tt
 const USAGE: &str =
     "Usage:\n fig2dev -hV\n fig2dev -L language -h\n fig2dev [-L language] [other options] [in.fig [output]]\n";
 
-/// How RustFig writes one of fig2dev's languages.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Writer {
-    /// A ported driver (`fig2dev::drivers::driver`).
-    Ported,
-    /// Not ported yet: the plan task.
-    Planned(&'static str),
-}
-
-/// fig2dev's drivers (drivers.h): name, suffix alias, writer.
-const DRIVERS: &[(&str, Option<&str>, Writer)] = &[
-    ("box", None, Writer::Ported),
-    ("cgm", None, Writer::Planned("B9")),
-    ("dxf", None, Writer::Planned("B9")),
-    ("eepic", None, Writer::Planned("B9")),
-    ("eepicemu", None, Writer::Planned("B9")),
-    ("emf", None, Writer::Planned("B9")),
-    ("epic", None, Writer::Planned("B9")),
-    ("eps", None, Writer::Ported),
-    ("gbx", None, Writer::Planned("B9")),
-    ("ge", None, Writer::Planned("B9")),
-    ("gif", None, Writer::Ported),
-    ("ibmgl", None, Writer::Planned("B9")),
-    ("jpeg", Some("jpg"), Writer::Ported),
-    ("latex", None, Writer::Planned("B9")),
-    ("map", None, Writer::Planned("B9")),
-    ("mf", None, Writer::Planned("B9")),
-    ("mp", None, Writer::Planned("B9")),
-    ("pcx", None, Writer::Ported),
-    ("pdf", None, Writer::Ported),
+/// fig2dev's drivers (drivers.h): name, suffix alias.
+const DRIVERS: &[(&str, Option<&str>)] = &[
+    ("box", None),
+    ("cgm", None),
+    ("dxf", None),
+    ("eepic", None),
+    ("eepicemu", None),
+    ("emf", None),
+    ("epic", None),
+    ("eps", None),
+    ("gbx", None),
+    ("ge", None),
+    ("gif", None),
+    ("ibmgl", None),
+    ("jpeg", Some("jpg")),
+    ("latex", None),
+    ("map", None),
+    ("mf", None),
+    ("mp", None),
+    ("pcx", None),
+    ("pdf", None),
     // The graphics halves of the combined LaTeX languages (genpstex.c):
     // EPS and PDF without special texts.
-    ("pdftex", None, Writer::Ported),
-    ("pdftex_t", None, Writer::Planned("B2")),
-    ("pic", None, Writer::Planned("B9")),
-    ("pict2e", None, Writer::Planned("B3")),
-    ("pictex", None, Writer::Planned("B9")),
-    ("png", None, Writer::Ported),
-    ("ppm", None, Writer::Ported),
-    ("ps", None, Writer::Ported),
-    ("pstex", None, Writer::Ported),
-    ("pstex_t", None, Writer::Planned("B2")),
-    ("pstricks", None, Writer::Planned("B3")),
-    ("ptk", None, Writer::Planned("B9")),
-    ("shape", None, Writer::Planned("B9")),
-    ("sld", None, Writer::Ported),
-    ("svg", None, Writer::Ported),
-    ("textyl", None, Writer::Planned("B9")),
-    ("tiff", Some("tif"), Writer::Ported),
-    ("tikz", None, Writer::Planned("B1")),
-    ("tk", None, Writer::Planned("B9")),
-    ("tpic", None, Writer::Planned("B9")),
-    ("xbm", None, Writer::Ported),
-    ("xpm", None, Writer::Ported),
+    ("pdftex", None),
+    ("pdftex_t", None),
+    ("pic", None),
+    ("pict2e", None),
+    ("pictex", None),
+    ("png", None),
+    ("ppm", None),
+    ("ps", None),
+    ("pstex", None),
+    ("pstex_t", None),
+    ("pstricks", None),
+    ("ptk", None),
+    ("shape", None),
+    ("sld", None),
+    ("svg", None),
+    ("textyl", None),
+    ("tiff", Some("tif")),
+    ("tikz", None),
+    ("tk", None),
+    ("tpic", None),
+    ("xbm", None),
+    ("xpm", None),
 ];
 
-fn find_driver(name: &str) -> Option<&'static (&'static str, Option<&'static str>, Writer)> {
-    DRIVERS.iter().find(|(n, _, _)| *n == name)
+fn find_driver(name: &str) -> Option<&'static (&'static str, Option<&'static str>)> {
+    DRIVERS.iter().find(|(n, _)| *n == name)
 }
 
 /// An error that ends the run (fig2dev's `exit(1)`).
@@ -172,97 +162,20 @@ fn guess_from_suffix(last: &str) -> Option<&'static str> {
     let ext = last.rsplit_once('.')?.1;
     DRIVERS
         .iter()
-        .find(|(n, alias, _)| *n == ext || *alias == Some(ext))
-        .map(|(n, _, _)| *n)
+        .find(|(n, alias)| *n == ext || *alias == Some(ext))
+        .map(|(n, _)| *n)
 }
 
 fn print_version(io: &mut Io) {
-    outln!(io, "fig2dev Version {VERSION} (RustFig {})", env!("CARGO_PKG_VERSION"));
+    outln!(io, "fig2dev Version {VERSION}");
 }
 
-/// fig2dev's general options (fig2dev.c `help_msg`): letter and lines.
-const GENERAL_HELP: &[(char, &str)] = &[
-    ('h', "  -h          print this message, fig2dev version number and exit"),
-    ('V', "  -V          print fig2dev version number and exit"),
-    ('D', "  -D +/-list  include or exclude depths listed"),
-    (
-        'K',
-        "  -K          adjust bounding box according to selected depths\n                      given with '-D +/-list' option",
-    ),
-    ('E', "  -E enc      set the character encoding of the input file"),
-    (
-        'G',
-        "  -G minor[:major][unit]    draw light gray grid with thin/thick lines at\n                minor/major units (e.g., -G .25:1cm)",
-    ),
-    ('m', "  -m mag      set magnification.  This may not be used with the -Z option"),
-    ('s', "  -s size     set default font size in points"),
-    (
-        'Z',
-        "  -Z maxdim   scale the figure so that the maximum dimension (width or height)\n                is maxdim inches/cm.  This may not be used with the -m option \n  -Z <width>w   append 'w' or a colon (':') to specify the width, append 'h' or\n  -Z <height>h  prepend a colon to specify the height",
-    ),
-];
-
-/// Whether RustFig's fig2dev writes `lang`.
-fn writes(lang: &str) -> bool {
-    fig2dev::drivers::help(lang).is_some()
-        || fig2dev::drivers::driver(lang).is_some()
-        || matches!(find_driver(lang).map(|d| d.2), Some(Writer::Ported))
-}
-
-/// Whether general option `c` does something for `lang`: -h and -V always,
-/// -G where the grid is drawn, the others for every language RustFig writes.
-fn general_effective(c: char, lang: &str) -> bool {
-    match c {
-        'h' | 'V' => true,
-        'G' => match fig2dev::drivers::help(lang) {
-            Some(h) => h.grid,
-            None => OPTIONS
-                .iter()
-                .any(|o| o.letter == 'G' && o.support == Support::Ported && o.effective_for(lang)),
-        },
-        _ => writes(lang),
-    }
-}
-
-/// The options of `lang` that do something in RustFig, as help lines,
-/// with the section title; general options are left out.
-fn language_help(lang: &str) -> (String, Vec<String>) {
-    if let Some(h) = fig2dev::drivers::help(lang) {
-        let lines = h
-            .options
-            .iter()
-            .map(|o| fig2dev::drivers::help::format_option(o.letter, o.arg, o.text))
-            .collect();
-        return (h.title.to_string(), lines);
-    }
-    let general: Vec<char> = GENERAL_HELP.iter().map(|g| g.0).chain(['L']).collect();
-    let title = lang.to_uppercase();
-    let lang = match lang {
-        "pstex" => "eps",
-        "pdftex" => "pdf",
-        other => other,
-    };
-    let lines = OPTIONS
-        .iter()
-        .filter(|o| o.support == Support::Ported && o.effective_for(lang) && !general.contains(&o.letter))
-        .map(|o| {
-            let arg = match o.arg {
-                Arg::Flag => "",
-                Arg::Number => "num",
-                Arg::Color => "color",
-                Arg::Font => "font",
-                Arg::Text | Arg::Depths | Arg::Size => "arg",
-            };
-            fig2dev::drivers::help::format_option(o.letter, arg, o.help)
-        })
-        .collect();
-    (title, lines)
-}
-
-/// fig2dev's help (`help_msg`): with a language, the general options that
-/// do something for it and its own options that RustFig honours; without
-/// one, the general options and the languages.
+/// fig2dev's help (`help_msg`, text in `help_text.rs`): the general
+/// options, then the options of the language given (or of every language).
 fn print_help(io: &mut Io, lang: Option<&str>) {
+    use crate::help_text::{BITMAP, BITMAP_LANGS, GENERAL, VECTOR, VECTOR_HEAD, VECTOR_LANGS};
+    let rule = "-".repeat(80);
+    let wanted = |langs: &[&str]| lang.is_none_or(|l| langs.contains(&l));
     outp!(io, "{USAGE}");
     outln!(io, "General Options (all drivers):");
     outln!(
@@ -276,7 +189,7 @@ fn print_help(io: &mut Io, lang: Option<&str>) {
     );
     outp!(io, "                Available languages are:\n                   ");
     let mut n = 20;
-    for (name, _, _) in DRIVERS {
+    for (name, _) in DRIVERS {
         if n > 72 {
             outp!(io, "\n                   ");
             n = 20;
@@ -284,32 +197,21 @@ fn print_help(io: &mut Io, lang: Option<&str>) {
         outp!(io, " {name}");
         n += name.len() + 1;
     }
-    outln!(io);
-    for (c, text) in GENERAL_HELP {
-        let shown = match lang {
-            Some(l) => general_effective(*c, l),
-            None => DRIVERS.iter().any(|(l, _, _)| general_effective(*c, l)),
-        };
-        if shown {
-            outln!(io, "{text}");
+    outp!(io, "\n{GENERAL}");
+    if wanted(VECTOR_LANGS) {
+        outp!(io, "\n{rule}\n{VECTOR_HEAD}");
+        for (langs, text) in VECTOR {
+            if wanted(langs) {
+                outp!(io, "{text}");
+            }
         }
     }
-    let Some(lang) = lang else {
-        outln!(io, "\nUse fig2dev -L language -h for the options of one language.");
-        return;
-    };
-    if let Some((_, _, Writer::Planned(task))) = find_driver(lang).filter(|_| !writes(lang)) {
-        outln!(
-            io,
-            "\nThe {lang} language is not available in RustFig's fig2dev yet (plan task {task})."
-        );
-        return;
-    }
-    let (title, lines) = language_help(lang);
-    if !lines.is_empty() {
-        outln!(io, "\n{title} Options:");
-        for l in lines {
-            outln!(io, "{l}");
+    if wanted(BITMAP_LANGS) {
+        outp!(io, "\n{rule}\nBitmap formats:\n");
+        for (langs, text) in BITMAP {
+            if wanted(langs) {
+                outp!(io, "{text}");
+            }
         }
     }
 }
@@ -581,8 +483,8 @@ fn run_inner(io: &mut Io, args: Vec<String>) -> Result<u8, Exit> {
                 // fig2dev keeps 11 characters (`lang[12]`).
                 let full = arg.unwrap_or_default();
                 let l = String::from_utf8_lossy(full.as_bytes().get(..11).unwrap_or(full.as_bytes())).into_owned();
-                let Some((name, _, _)) = find_driver(&l) else {
-                    let known: Vec<&str> = DRIVERS.iter().map(|(n, _, _)| *n).collect();
+                let Some((name, _)) = find_driver(&l) else {
+                    let known: Vec<&str> = DRIVERS.iter().map(|(n, _)| *n).collect();
                     return Err(Exit(format!(
                         "Unknown graphics language {l}\nKnown languages are:\n{} ",
                         known.join(" ")
@@ -623,12 +525,7 @@ fn run_inner(io: &mut Io, args: Vec<String>) -> Result<u8, Exit> {
     ctx.to = to.cloned();
 
     let Some(mut dev) = devs.take(lang) else {
-        return Err(Exit(match find_driver(lang).map(|d| d.2) {
-            Some(Writer::Planned(task)) => {
-                format!("fig2dev: the {lang} language is not available in RustFig's fig2dev yet (plan task {task})")
-            }
-            _ => format!("fig2dev: no writer for {lang}"),
-        }));
+        return Err(Exit(format!("fig2dev: no writer for {lang}")));
     };
 
     // Read the figure with fig2dev's reader: its checks, repairs and

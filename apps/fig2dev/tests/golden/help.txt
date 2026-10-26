@@ -1,0 +1,229 @@
+fig2dev Version 3.2.9a
+Usage:
+ fig2dev -hV
+ fig2dev -L language -h
+ fig2dev [-L language] [other options] [in.fig [output]]
+General Options (all drivers):
+  -L language	choose output language (this must be first, if the language
+                cannot be inferrred from the suffix of the output file)
+                Available languages are:
+                    box cgm dxf eepic eepicemu emf epic eps gbx ge gif ibmgl
+                    jpeg latex map mf mp pcx pdf pdftex pdftex_t pic pict2e
+                    pictex png ppm ps pstex pstex_t pstricks ptk shape sld
+                    svg textyl tiff tikz tk tpic xbm xpm
+  -h          print this message, fig2dev version number and exit
+  -V          print fig2dev version number and exit
+  -D +/-list  include or exclude depths listed
+  -K          adjust bounding box according to selected depths
+                      given with '-D +/-list' option
+  -E enc      set the character encoding of the input file
+  -G minor[:major][unit]    draw light gray grid with thin/thick lines at
+                minor/major units (e.g., -G .25:1cm)
+  -m mag      set magnification.  This may not be used with the -Z option
+  -s size     set default font size in points
+  -Z maxdim   scale the figure so that the maximum dimension (width or height)
+                is maxdim inches/cm.  This may not be used with the -m option 
+  -Z <width>w   append 'w' or a colon (':') to specify the width, append 'h' or
+  -Z <height>h  prepend a colon to specify the height
+
+
+--------------------------------------------------------------------------------
+Vector formats:
+CGM Options:
+  -a          call the ralcgm program to generate binary output
+  -r          position arrowheads for CGM viewers that use rounded arrowheads
+DXF Options:
+  -f fontfile load text character specs from table in file
+  -l pattfile load patterns for pattern fill from file
+  -P          rotate figure to portrait (default is landscape)
+  -p penfile  load plotter pen specs from file
+EMF Options:
+  -l lang     set compatibility level to win95, win98 or winnt, default winnt
+  -r          position arrowheads for EMF viewers that use rounded arrowheads
+EPS, PDFTEX, PSTEX and PDF (if -P is not given) Options:
+  -A          add ASCII preview (produce EPSI file; not for PDF output)
+  -B "Wx [Wy X0 Y0]"    force width, height and origin in absolute coordinates
+  -b width    specify width of blank border around figure (points, 1/72 inch)
+  -C dummyarg add color TIFF preview (for Microsoft apps; not for PDF output)
+  -F          use correct font sizes (points instead of 1/80inch)
+  -f font     set default font
+  -g color    set background color
+  -j          enable composite fonts for japanese or korean text
+  -N          convert all colors to grayscale
+  -n name     set title part of PostScript output to name
+  -R "Wx [Wy X0 Y0]"    force width, height and origin in relative
+                coordinates (relative to lower-left of figure bounds)
+  -T          add monochrome TIFF preview (for Microsoft apps; not for PDF)
+EPIC, EEPIC and EEPICEMU Options:
+  -d scale    divide size of arrowheads by scale
+  -F          do not set font family, series or shape
+  -f font     set default font
+  -l lwidth   use "thicklines" when width of line is > lwidth
+  -P          generate a complete LaTeX file
+  -R dummyarg allow rotated text (uses \rotatebox)
+  -S scale    scale figure to scale/12, scale must be between 8 and 12
+  -t stretch  set the stretch of dashed lines (default = 30)
+  -v          include comments in the output
+  -W          enable variable line width
+  -w          disable variable line width
+GBX (Gerber, RS-247-X) Options:
+  -d [mm|in]  output dimensions assumed to be millimeters or inches
+  -p [pos|neg]    image Polarity - positive results in lines being drawn,
+                negative results in lines erasing background
+  -g <x scale>x<y scale>+<x offset>+<y offset>    scale and shift output.
+                Typically, use -g 1x-1+0+0, mirroring about the x axis.
+  -f <n digits>.<n digits>    digits of precision before and
+                after the implied decimal point.
+  -v          include comments in the output
+IBM-GL Options:
+  -a          select ANSI A paper size instead of the default ISO A4
+  -c          generate instructions for IBM 6180 plotter without IBM-GEC
+  -d xll,yll,xur,yur    restrict plotting to area specified by coords
+  -f fontfile load text character specs from table in file
+  -k          precede output with PCL command to use HP/GL
+  -l pattfile load patterns for pattern fill from file
+  -P          rotate figure to portrait (default is landscape)
+  -p penfile  load plotter pen specs from file
+  -S speed    set pen speed in cm/sec
+  -v          print figure upside-down in portrait or backwards in landscape
+  -x offset   shift figure left by offset inches
+  -y offset   shift figure up by offset inches
+LaTeX Options:
+  -b width    specify width of blank border around figure (1/72 inch)
+  -d dmag     set separate magnification for length of line dashes to dmag
+  -F          do not set font family/series/shape
+  -f font     set default font
+  -l lwidth   set threshold between thin and thick lines to lwidth
+  -v          verbose mode
+MAP (HTML image map) Options:
+  -b width    specify width of blank border around figure (points, 1/72 inch)
+METAFONT Options:
+  -C code     specifies the starting METAFONT font code
+  -n name     name to use in the output file
+  -p pen_mag  linewidth magnification compared to the original figure
+  -t top      specifies the top of the coordinate system
+  -x xmin     specifies minimum x coordinate of figure (inches)
+  -y ymin     specifies minimum y coordinate of figure (inches)
+  -X xmax     specifies maximum x coordinate of figure (inches)
+  -Y xmax     specifies maximum y coordinate of figure (inches)
+METAPOST Options:
+  -d file     add file content as additional header
+  -i file     include file content via \input-command
+  -M          multipage, make one figure for each depth
+  -o          old mode (no latex)
+  -p number   add the line "prologues:=number"
+PIC Options:
+  -f font     set default font
+  -p ext      enables certain PIC extensions (see man pages)
+PICTeX Options:
+  -f font     set default font
+  -l dimen    set line thickness to TeX dimen
+  -p symbol   set plot symbol (default \tencirc\symbol{'160})
+  -r          do not use dvips
+PICT2E Options:
+  -b width    specify width of blank border around figure (points, 1/72 inch)
+  -C num      do not issue color commands for color num (0 = black,
+                1 = blue, etc., see xfig color chooser)
+  -e          do not try to be compatible with epic/eepic
+  -F          do not set font family/series/shape
+  -f font     set default font
+  -i dir      prepend the string "dir" to included graphics files
+  -o          do not set the font size
+  -O          do not quote characters special to TeX/LaTeX
+                (effectively, set the text flag "TeX" for all text)
+  -P          pagemode, generate stand-alone LaTeX-file
+  -R num      use LaTeX-arrows for arrow-type num
+  -r          use LaTeX-arrows for all arrows
+  -T          only use TeX fonts (even when PS-fonts are specified)
+  -v          verbose mode, include comments in the output
+  -w          remove suffix from included graphics-files
+PostScript and PDF (if -P is given) Options:
+  -A          add ASCII (EPSI) preview, not for PDF output
+  -b width    specify width of blank border around figure (1/72 inch)
+  -C dummyarg add color TIFF preview (for Microsoft apps), not for PDF output
+  -c          center figure on page
+  -e          put figure at left edge of page
+  -F          use correct font sizes (points instead of 1/80inch)
+  -f font     set default font
+  -g color    set background color
+  -j          enable composite fonts for japanese or korean text
+  -l dummyarg landscape mode (dummy argument required after "-l")
+  -M          generate multiple pages for large figure
+  -N          convert all colors to grayscale
+  -n name     set title part of PostScript output to name
+  -O          overlap pages in multiple page mode (-M)
+  -o          generate single page output
+  -P          honor page size, do not crop to bounding box; PDF output only
+  -p dummyarg portrait mode (dummy argument required after "-p")
+  -T          add monochrome TIFF preview (for Microsoft apps), not for PDF
+  -x offset   shift figure left/right by offset units (1/72 inch)
+  -y offset   shift figure up/down by offset units (1/72 inch)
+  -z papersize    set the papersize (see man pages for available sizes)
+PSTricks Options:
+  -f fontname set default font
+  -G dummyarg draw pstricks standard grid (sizes ignored)
+  -l weight   set line weight factor 0 to 2.0 (default 0.5 matches PS driver)
+  -M          generate multiple pages for large figure
+  -N          convert all colors to grayscale
+  -n mode     page mode (0, 1, 2, or 3)
+  -O          overlap pages in multiple page mode (-M)
+  -P          generate complete {document}; scale to fit one page
+  -p dir      turn on auto picture conversion to EPS; dir is repository
+  -R 0|1|2    arrow style (default 0 = Fig, 1 = PST with Fig sizes,
+                 2 = PST default, ignore Fig sizes)
+  -S scale    hard scale factor, scale must be between 8 and 12 inclusively
+  -t version  set PSTricks version
+  -v          verbose warnings and comments in output file
+  -x marginsize    add margin on left and right (default is tight bounding box)
+  -y marginsize    add margin on over and under (default is tight bounding box)
+  -z 0|1|2    font handling (default 0=full, 1=size only, 2=none,PST default)
+  -S dummyarg generate single page
+PSTEX_T and PDFTEX_T Options:
+  -b width    specify width of blank border around figure (1/72 inch)
+  -F          do not set font family, series or shape, so you can
+                set it from latex
+  -f font     set default font
+  -p name     name of the PostScript or PDF file to be overlaid
+  -v          verbose mode
+SHAPE (ShapePar driver) Options:
+  -n name     Set basename of the macro
+                (e.g. "face" gives faceshape and facepar)
+Tcl/Tk (tk) and Perl/Tk (ptk) Options:
+  -g color    set background color (Tcl/Tk only)
+  -l dummyarg landscape mode (dummy argument required after "-l")
+  -p dummyarg portrait mode (dummy argument required after "-p")
+  -P          generate canvas of full page size instead of figure bounds
+  -w          add wrapper to generate complete perl file
+  -z papersize        set the papersize (see man pages for available sizes)
+TIKZ Options:
+  -b width    specify width of blank border around figure (1/72 inch)
+  -C num      do not issue color commands for color num (0 = black,
+                1 = blue, etc., see xfig color chooser)
+  -F          do not set font family/series/shape
+  -i dir      prepend the string "dir" to included graphics files
+  -O          do not quote characters special to TeX/LaTeX
+                (effectively, set the text flag "TeX" for all text)
+  -o          do not set the font size
+  -P          pagemode, generate stand-alone LaTeX-file
+  -T          only use TeX fonts (even when PS-fonts are specified)
+  -v          verbose mode, include comments in the output
+  -W          disable code that enables scaling of figure from TeX file
+  -w          remove suffix from included graphics-files
+TEXTYL Options:
+  -f font     set default font
+  -l width    set line width, width must be between 1 and 12 inclusively
+TPIC Options:
+  -f font     set default font
+
+--------------------------------------------------------------------------------
+Bitmap formats:
+Options common to all bitmap formats:
+  -b width    specify width of blank border around figure (pixels)
+  -F          use correct font sizes (points instead of 1/80inch)
+  -g color    set background color
+  -N          convert all colors to grayscale
+  -S smooth   specify smoothing factor (1 = none, 2 = some, 4 = more)
+GIF Options:
+  -t color    specify GIF transparent color in hexadecimal (e.g. #ff0000=red)
+JPEG Options:
+  -q quality  specify image quality factor (0-100)

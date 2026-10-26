@@ -1,0 +1,39 @@
+fig2dev Version 3.2.9a
+Usage:
+ fig2dev -hV
+ fig2dev -L language -h
+ fig2dev [-L language] [other options] [in.fig [output]]
+General Options (all drivers):
+  -L language	choose output language (this must be first, if the language
+                cannot be inferrred from the suffix of the output file)
+                Available languages are:
+                    box cgm dxf eepic eepicemu emf epic eps gbx ge gif ibmgl
+                    jpeg latex map mf mp pcx pdf pdftex pdftex_t pic pict2e
+                    pictex png ppm ps pstex pstex_t pstricks ptk shape sld
+                    svg textyl tiff tikz tk tpic xbm xpm
+  -h          print this message, fig2dev version number and exit
+  -V          print fig2dev version number and exit
+  -D +/-list  include or exclude depths listed
+  -K          adjust bounding box according to selected depths
+                      given with '-D +/-list' option
+  -E enc      set the character encoding of the input file
+  -G minor[:major][unit]    draw light gray grid with thin/thick lines at
+                minor/major units (e.g., -G .25:1cm)
+  -m mag      set magnification.  This may not be used with the -Z option
+  -s size     set default font size in points
+  -Z maxdim   scale the figure so that the maximum dimension (width or height)
+                is maxdim inches/cm.  This may not be used with the -m option 
+  -Z <width>w   append 'w' or a colon (':') to specify the width, append 'h' or
+  -Z <height>h  prepend a colon to specify the height
+
+
+--------------------------------------------------------------------------------
+Bitmap formats:
+Options common to all bitmap formats:
+  -b width    specify width of blank border around figure (pixels)
+  -F          use correct font sizes (points instead of 1/80inch)
+  -g color    set background color
+  -N          convert all colors to grayscale
+  -S smooth   specify smoothing factor (1 = none, 2 = some, 4 = more)
+GIF Options:
+  -t color    specify GIF transparent color in hexadecimal (e.g. #ff0000=red)
