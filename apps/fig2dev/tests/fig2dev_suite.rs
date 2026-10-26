@@ -98,6 +98,12 @@ fn arg(s: &str) -> String {
         .replace("@%:@", "#")
 }
 
+/// The test spells the iconv encodings as glibc takes them; macOS and the
+/// BSDs want the dashes.
+fn iconv_names(cmd: &str) -> String {
+    cmd.replace("-f UTF8 ", "-f UTF-8 ").replace("KOI8R", "KOI8-R")
+}
+
 /// Top-level text between the macros: shell lines of the test group.
 fn shell_text(s: &str) -> String {
     unquote(&expand(s))
@@ -107,7 +113,7 @@ fn shell_text(s: &str) -> String {
         .replace("@%:@", "#")
 }
 
-/// Expand the macros the suite uses: FIG_FILE_TOP, NO_GS, AS_ECHO_N,
+/// Expand the macros the suite uses: FIG_FILE_TOP, NO_GS, AS_ECHO_N, AS_ECHO,
 /// m4_for (without the loop variable), dnl; drop AT_KEYWORDS.
 fn expand(s: &str) -> String {
     let fig_top = "#FIG 3.2\nLandscape\nCenter\nInches\nLetter\n100.00\nSingle\n-2\n1200 2";
@@ -124,12 +130,17 @@ fn expand(s: &str) -> String {
         } else if r.starts_with("NO_GS") {
             out.push_str("! $GSEXE --version");
             i += "NO_GS".len();
-        } else if let Some((name, a, after)) = ["AS_ECHO_N", "m4_for", "AT_KEYWORDS"]
+        } else if let Some((name, a, after)) = ["AS_ECHO_N", "AS_ECHO", "m4_for", "AT_KEYWORDS"]
             .iter()
             .find(|m| r.starts_with(&format!("{m}(")) && word_start(&out))
             .and_then(|m| macro_args(s, i + m.len()).map(|(a, after)| (*m, a, after)))
         {
             match name {
+                "AS_ECHO" => {
+                    // autotest's AS_ECHO(text): `printf '%s\n' text`.
+                    out.push_str("printf '%s\\n' ");
+                    out.push_str(&expand(a.first().map_or("", |x| x.as_str())));
+                }
                 "AS_ECHO_N" => {
                     out.push_str("printf %s ");
                     out.push_str(&expand(a.first().map_or("", |x| x.as_str())));
@@ -266,6 +277,23 @@ enum Outcome {
     NotPorted(String),
 }
 
+/// The file of a `"$abs_builddir"/test2 "file"` command (tests/test2.c).
+fn test2_file(cmd: &str) -> Option<String> {
+    let (_, rest) = cmd.split_once("/test2 ")?;
+    let file = rest.split_whitespace().next()?.trim_matches('"');
+    Some(file.replace("$srcdir", &tests_dir().to_string_lossy()))
+}
+
+/// tests/test2.c: does `read_pdf` find the bounding box of the PDF? C's
+/// success test is `read_pdf(...) == 1 && width != 10 && height != 10`.
+fn test2(file: &str) -> bool {
+    let Ok(data) = std::fs::read(file) else {
+        return false;
+    };
+    let mut pic = fig2dev::object::Pic::default();
+    fig2dev::util::readpics::read_pdf(&data, &mut pic).is_ok() && pic.bit_size.x != 10 && pic.bit_size.y != 10
+}
+
 fn run_case(case: &Case, bin_dir: &Path, work: &Path) -> Outcome {
     let _ = std::fs::remove_dir_all(work);
     std::fs::create_dir_all(work).unwrap();
@@ -273,7 +301,7 @@ fn run_case(case: &Case, bin_dir: &Path, work: &Path) -> Outcome {
     let sh = |cmd: &str| {
         Command::new("sh")
             .arg("-c")
-            .arg(cmd)
+            .arg(iconv_names(cmd))
             .current_dir(work)
             .env("PATH", &path)
             .env("srcdir", tests_dir())
@@ -311,6 +339,13 @@ fn run_case(case: &Case, bin_dir: &Path, work: &Path) -> Outcome {
             } => {
                 if let Some(l) = languages(cmd).into_iter().find(|l| !ported(l)) {
                     return Outcome::NotPorted(l);
+                }
+                if let Some(file) = test2_file(cmd) {
+                    // tests/test2.c, ported: no C helper is built.
+                    if test2(&file) {
+                        continue;
+                    }
+                    return Outcome::Fail(format!("read_pdf found no /MediaBox in {file}"));
                 }
                 let out = sh(&format!("{prelude}{cmd}"));
                 let code = out.status.code().unwrap_or(-1);
@@ -411,4 +446,11 @@ fn sources_dir() -> std::path::PathBuf {
     std::env::var_os("FIG2DEV_SOURCES")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../old"))
+}
+
+#[test]
+fn as_echo_and_iconv_names_expand() {
+    let cmd = shell_text(r#"AS_ECHO(["2 4 7"]) | fig2dev"#);
+    assert_eq!(cmd, "printf '%s\\n' \"2 4 7\" | fig2dev");
+    assert_eq!(iconv_names("iconv -f UTF8 -t KOI8R"), "iconv -f UTF-8 -t KOI8-R");
 }

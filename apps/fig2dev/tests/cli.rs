@@ -203,58 +203,6 @@ fn bitmap_options() {
     assert!(o.status.success() && o.stdout.starts_with(b"GIF8"), "{}", err(&o));
 }
 
-fn help(args: &[&str]) -> String {
-    let o = fig2dev(args, "");
-    assert!(o.status.success(), "{}", err(&o));
-    String::from_utf8_lossy(&o.stdout).into_owned()
-}
-
-#[test]
-fn help_lists_only_effective_options() {
-    let all = help(&["-h"]);
-    assert!(all.contains("Available languages are:") && all.contains(" mp"), "{all}");
-    assert!(all.contains("Use fig2dev -L language -h"), "{all}");
-    assert!(!all.contains(" Options:"), "no language sections: {all}");
-    assert!(!all.contains("METAPOST") && !all.contains("EPS Options"), "{all}");
-
-    let eps = help(&["-L", "eps", "-h"]);
-    assert!(eps.contains("EPS Options:") && eps.contains("  -b num"), "{eps}");
-    assert!(eps.contains("  -D +/-list"), "{eps}");
-    for page_only in ["  -P", "  -c ", "  -z ", "  -M "] {
-        assert!(!eps.contains(page_only), "eps lists {page_only}: {eps}");
-    }
-    assert!(eps.contains("  -G minor[:major][unit]"), "{eps}");
-
-    let mp = help(&["-L", "mp", "-h"]);
-    assert!(mp.contains("METAPOST Options:"), "{mp}");
-    for line in [
-        "  -d file     add file content",
-        "  -i file",
-        "  -M          multipage",
-        "  -o ",
-        "  -p number",
-    ] {
-        assert!(mp.contains(line), "mp lacks {line}: {mp}");
-    }
-    assert!(!mp.contains("EPS Options"), "{mp}");
-
-    let epic = help(&["-L", "eepic", "-h"]);
-    assert!(
-        epic.contains("EPIC, EEPIC and EEPICEMU Options:") && epic.contains("  -S scale"),
-        "{epic}"
-    );
-
-    let tk = help(&["-L", "sld", "-h"]);
-    assert!(tk.contains("SLD Options:") && tk.contains("  -S num"), "{tk}");
-
-    for out in [&all, &eps, &mp, &epic, &tk] {
-        assert!(
-            !out.contains("no effect here") && !out.contains("not in RustFig yet"),
-            "{out}"
-        );
-    }
-}
-
 /// A figure with a PostScript text and a special (LaTeX) text.
 const TEXTS: &str = "#FIG 3.2\nLandscape\nCenter\nInches\nLetter\n100.00\nSingle\n-2\n1200 2\n\
 2 2 0 1 0 7 50 -1 -1 0.000 0 0 -1 0 0 5\n\t 0 0 2400 0 2400 1200 0 1200 0 0\n\
@@ -601,4 +549,59 @@ fn driver_error_keeps_partial_output() {
     let out = String::from_utf8_lossy(&o.stdout);
     assert!(out.starts_with("G04 Gerber RS-274x file*"), "partial output kept");
     assert!(!out.contains("M02*"));
+}
+
+fn norm(s: &[u8]) -> String {
+    String::from_utf8_lossy(s).replace("\r\n", "\n")
+}
+
+#[test]
+fn version_is_fig2devs_alone() {
+    // C: `fig2dev Version 3.2.9a` on stdout, exit 0, nothing else.
+    for args in [&["-V"][..], &["--version"], &["-L", "eps", "-V"]] {
+        let o = fig2dev(args, "");
+        assert_eq!(o.status.code(), Some(0));
+        assert_eq!(norm(&o.stdout), "fig2dev Version 3.2.9a\n");
+        assert_eq!(err(&o), "");
+    }
+}
+
+#[test]
+fn help_is_fig2devs_text() {
+    // The C binary's `-h`, `-L eps -h` and `-L gif -h` (stdout), word for word.
+    for (args, golden) in [
+        (&["-h"][..], include_str!("golden/help.txt")),
+        (&["-L", "eps", "-h"], include_str!("golden/help_eps.txt")),
+        (&["-L", "gif", "-h"], include_str!("golden/help_gif.txt")),
+    ] {
+        let o = fig2dev(args, "");
+        assert_eq!(o.status.code(), Some(0), "{args:?}");
+        assert_eq!(norm(&o.stdout), golden.replace("\r\n", "\n"), "{args:?}");
+        assert!(!norm(&o.stdout).contains("Planned"));
+    }
+}
+
+#[test]
+fn non_standard_font_warns_and_goes_on() {
+    // C: "warning: non-standard font name Foo" on stderr, exit 0, output written.
+    for lang in ["eps", "pdf", "ps"] {
+        let o = fig2dev(&["-L", lang, "-f", "Foo"], FIG);
+        assert_eq!(o.status.code(), Some(0), "{lang}: {}", err(&o));
+        assert_eq!(err(&o), "warning: non-standard font name Foo\n", "{lang}");
+        assert!(!o.stdout.is_empty());
+    }
+    // A standard name is silent.
+    let o = fig2dev(&["-L", "eps", "-f", "Helvetica"], FIG);
+    assert_eq!((o.status.code(), err(&o).as_str()), (Some(0), ""));
+}
+
+#[test]
+fn border_may_be_negative_or_large() {
+    // C: `-b -3` exits 0 and cuts the box (74 38 becomes 68 32); `-b 99999` is taken as is.
+    let o = fig2dev(&["-L", "eps", "-b", "-3"], FIG);
+    assert_eq!(o.status.code(), Some(0), "{}", err(&o));
+    assert_eq!(bbox(&o), "%%BoundingBox: 0 0 68 32");
+    let o = fig2dev(&["-L", "eps", "-b", "99999"], FIG);
+    assert_eq!(o.status.code(), Some(0), "{}", err(&o));
+    assert_eq!(bbox(&o), "%%BoundingBox: 0 0 200072 200036");
 }
