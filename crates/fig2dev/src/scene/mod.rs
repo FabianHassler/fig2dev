@@ -371,7 +371,13 @@ pub fn stroke(
     Some(Stroke {
         width,
         color: pen,
-        dash: line.dash_pattern(style_val, width),
+        // genps `set_style` writes no dash for a style value of 0 or less
+        // (gensvg's "0 0" array draws solid too), whatever the line style.
+        dash: if style_val > 0.0 {
+            line.dash_pattern(style_val, width)
+        } else {
+            Vec::new()
+        },
         cap: if round_dots && line == LineKind::Dotted {
             CapStyle::Round
         } else {
@@ -632,5 +638,23 @@ pub fn picture_prims_dct(
             fill: None,
             stroke: Some(stroke),
         });
+    }
+}
+
+#[cfg(test)]
+mod dash_tests {
+    use super::*;
+
+    #[test]
+    fn zero_style_value_draws_solid() {
+        let pen = Rgba {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        let st = |v| stroke(1, LineKind::Dashed, v, pen, CapStyle::Butt, JoinStyle::Miter, false);
+        assert!(st(0.0).is_some_and(|s| s.dash.is_empty()));
+        assert!(st(4.0).is_some_and(|s| !s.dash.is_empty()));
     }
 }
