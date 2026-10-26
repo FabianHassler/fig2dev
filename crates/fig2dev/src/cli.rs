@@ -45,7 +45,7 @@ const VERSION: &str = "3.2.9a";
 const OPTSTRING: &str = "AaB:b:C:cD:d:E:eFf:G:g:hi:jKkL:l:Mm:Nn:OoPp:q:R:rS:s:Tt:VvWwX:x:Y:y:Z:z:?";
 
 const USAGE: &str =
-    "Usage:\n fig2dev -hV\n fig2dev -L language -h\n fig2dev [-L language] [other options] [in.fig [output]]\n";
+    "Usage:\n fig2dev -hV\n fig2dev -h -L language\n fig2dev [-L language] [other options] [in.fig [output]]\n";
 
 /// fig2dev's drivers (drivers.h): name, suffix alias.
 const DRIVERS: &[(&str, Option<&str>)] = &[
@@ -171,11 +171,12 @@ fn print_version(io: &mut Io) {
 }
 
 /// fig2dev's help (`help_msg`, text in `help_text.rs`): the general
-/// options, then the options of the language given (or of every language).
+/// options, then the options of the language given. Unlike the C program,
+/// without a language only the general options are listed.
 fn print_help(io: &mut Io, lang: Option<&str>) {
     use crate::help_text::{BITMAP, BITMAP_LANGS, GENERAL, VECTOR, VECTOR_HEAD, VECTOR_LANGS};
     let rule = "-".repeat(80);
-    let wanted = |langs: &[&str]| lang.is_none_or(|l| langs.contains(&l));
+    let wanted = |langs: &[&str]| lang.is_some_and(|l| langs.contains(&l));
     outp!(io, "{USAGE}");
     outln!(io, "General Options (all drivers):");
     outln!(
@@ -198,6 +199,9 @@ fn print_help(io: &mut Io, lang: Option<&str>) {
         n += name.len() + 1;
     }
     outp!(io, "\n{GENERAL}");
+    if lang.is_none() {
+        outln!(io, "The options of a language: fig2dev -h -L language");
+    }
     if wanted(VECTOR_LANGS) {
         outp!(io, "\n{rule}\n{VECTOR_HEAD}");
         for (langs, text) in VECTOR {
@@ -457,11 +461,17 @@ fn run_inner(io: &mut Io, args: Vec<String>) -> Result<u8, Exit> {
     }
     // One pass in command-line order, as fig2dev's getopt loop.
     let (opts, operands, error) = getopt(&args);
-    for (c, arg) in opts {
+    let mut opts = opts.into_iter();
+    while let Some((c, arg)) = opts.next() {
         match c {
             'h' => {
+                // -h also takes a language given after it (-h -L eps).
+                let later = opts
+                    .filter(|(c, _)| *c == 'L')
+                    .filter_map(|(_, a)| a.as_deref().and_then(find_driver).map(|d| d.0))
+                    .next_back();
                 print_version(io);
-                print_help(io, lang);
+                print_help(io, later.or(lang));
                 return Ok(0);
             }
             'V' => {

@@ -1,7 +1,7 @@
 fig2dev Version 3.2.9a
 Usage:
  fig2dev -hV
- fig2dev -L language -h
+ fig2dev -h -L language
  fig2dev [-L language] [other options] [in.fig [output]]
 General Options (all drivers):
   -L language	choose output language (this must be first, if the language

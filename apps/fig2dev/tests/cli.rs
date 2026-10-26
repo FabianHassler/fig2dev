@@ -281,7 +281,7 @@ fn scratch(name: &str) -> PathBuf {
 }
 
 const USAGE: &str =
-    "Usage:\n fig2dev -hV\n fig2dev -L language -h\n fig2dev [-L language] [other options] [in.fig [output]]\n";
+    "Usage:\n fig2dev -hV\n fig2dev -h -L language\n fig2dev [-L language] [other options] [in.fig [output]]\n";
 
 /// fig2dev.c's `get_args`: one pass in command-line order; getopt's
 /// message is followed by the usage, without a blank line.
@@ -568,11 +568,15 @@ fn version_is_fig2devs_alone() {
 
 #[test]
 fn help_is_fig2devs_text() {
-    // The C binary's `-h`, `-L eps -h` and `-L gif -h` (stdout), word for word.
+    // The C binary's `-L eps -h` and `-L gif -h` (stdout), word for word but
+    // for the usage line; `-h` alone lists only the general options, and
+    // `-h -L lang` equals `-L lang -h`.
     for (args, golden) in [
         (&["-h"][..], include_str!("golden/help.txt")),
         (&["-L", "eps", "-h"], include_str!("golden/help_eps.txt")),
+        (&["-h", "-L", "eps"], include_str!("golden/help_eps.txt")),
         (&["-L", "gif", "-h"], include_str!("golden/help_gif.txt")),
+        (&["-h", "-L", "gif"], include_str!("golden/help_gif.txt")),
     ] {
         let o = fig2dev(args, "");
         assert_eq!(o.status.code(), Some(0), "{args:?}");

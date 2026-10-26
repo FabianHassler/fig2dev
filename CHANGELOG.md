@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `-h` lists only the general options and the languages; `-h -L <lang>` (or `-L <lang> -h`, as in C) adds that language's options. The C program's `-h` lists every language's options.
+
 ## 0.9.1 — 2026-10-26
 
 - `help_text.rs` (fig2dev.c's `help_msg`) listed in `LICENSE-xfig`; built only for native targets (the CLI uses it). v0.9.0 failed the licence check.
