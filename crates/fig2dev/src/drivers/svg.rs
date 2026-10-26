@@ -283,11 +283,44 @@ fn put_sanitized_char(out: &mut Out, c: u8) {
     }
 }
 
+/// The bytes C writes for a string: the raw bytes of the file when they are
+/// UTF-8 (as the document declares), else the decoded characters, so the
+/// output stays valid XML and RustFig's embedding can read it.
+fn xml_bytes<'a>(raw: &'a [u8], decoded: &'a str) -> &'a [u8] {
+    if std::str::from_utf8(raw).is_ok() {
+        raw
+    } else {
+        decoded.as_bytes()
+    }
+}
+
+/// The family list of a text with a `rustfig-font:` comment naming an
+/// installed font: that family first, then the Fig font's, and the style
+/// the installed face has (RustFig's F7; not in gensvg).
+fn installed_font(ctx: &mut Ctx, t: &Text, fig_family: &str) -> Option<(String, bool, bool)> {
+    let name = t
+        .comments
+        .iter()
+        .find_map(|c| figbase::text::parse_local_font_comment(&c.text))?;
+    let Some(lf) = figbase::text::find_local_font(name) else {
+        ctx.warn(format!(
+            "Font '{name}' (comment of a text) is not installed, using the Fig font instead"
+        ));
+        return None;
+    };
+    let family: String = lf
+        .family
+        .chars()
+        .filter(|c| !matches!(c, '\'' | '"' | '<' | '>' | '&' | '\\') && !c.is_control())
+        .collect();
+    Some((format!("'{family}', {fig_family}"), lf.bold, lf.italic))
+}
+
 /// `print_svgcomments`.
 fn print_svgcomments(out: &mut Out, s1: &str, comments: &[crate::object::Comment], s2: &str) {
     for c in comments {
         out.puts(s1);
-        put_sanitized(out, &c.raw);
+        put_sanitized(out, xml_bytes(&c.raw, &c.text));
         out.puts(s2);
     }
 }
@@ -764,7 +797,7 @@ impl Driver for SvgDriver {
             };
             out.puts("<!-- Image -->\n");
             out.puts("<image xlink:href=\"file:");
-            out.bytes(pic.name_bytes());
+            out.bytes(xml_bytes(pic.name_bytes(), &pic.file));
             out.puts("\" preserveAspectRatio=\"none\"\n");
             let (mut px, mut py) = (p1.x, p1.y);
             let mut width = p3.x.wrapping_sub(px);
@@ -937,6 +970,11 @@ impl Driver for SvgDriver {
             .and_then(|i| FAMILY.get(i))
             .copied()
             .unwrap_or("Times");
+        let local = installed_font(ctx, t, family);
+        let (family, local_style) = match local {
+            Some((f, b, i)) => (f, Some((b, i))),
+            None => (family.to_string(), None),
+        };
         fprintf!(
             out,
             "x=\"{x}\" y=\"{y}\" fill=\"#{:06x}\" font-family=\"{family}\" ",
@@ -950,20 +988,26 @@ impl Driver for SvgDriver {
         fprintf!(
             out,
             "font-style=\"{}\" font-weight=\"{}\" font-size=\"{}\" text-anchor=\"{anchor}\">",
-            if t.font % 2 == 0 || t.font > 31 {
-                "normal"
-            } else {
-                "italic"
+            match local_style {
+                Some((_, i)) if i => "italic",
+                Some(_) => "normal",
+                None if t.font % 2 == 0 || t.font > 31 => "normal",
+                None => "italic",
             },
-            if t.font % 4 < 2 || t.font > 31 {
-                "normal"
-            } else {
-                "bold"
+            match local_style {
+                Some((b, _)) if b => "bold",
+                Some(_) => "normal",
+                None if t.font % 4 < 2 || t.font > 31 => "normal",
+                None => "bold",
             },
             (t.size * ctx.ppi / 72.0 + 0.5) as i32
         );
         // C works on the bytes of the string.
-        let bytes = t.raw.as_slice();
+        let bytes = if t.font == 32 || t.font == 34 {
+            t.raw.as_slice()
+        } else {
+            xml_bytes(&t.raw, &t.cstring)
+        };
         if t.font == 32 || t.font == 34 {
             let table = if t.font == 32 { &SYMBOL_CHAR } else { &DINGBAT_CHAR };
             for &b in bytes {
