@@ -294,6 +294,21 @@ fn xml_bytes<'a>(raw: &'a [u8], decoded: &'a str) -> &'a [u8] {
     }
 }
 
+/// The codes of a Symbol or ZapfDingbats text: C's bytes (a Latin-1 file),
+/// or, when the bytes are UTF-8 (a UTF-8 file, or a text RustFig built), the
+/// characters below 256 as codes and the others left out, so `å` is one
+/// code (∑), not the two bytes of its UTF-8.
+fn font_codes(raw: &[u8], decoded: &str) -> Vec<u8> {
+    if std::str::from_utf8(raw).is_ok() {
+        decoded
+            .chars()
+            .filter_map(|c| u8::try_from(u32::from(c)).ok())
+            .collect()
+    } else {
+        raw.to_vec()
+    }
+}
+
 /// The family list of a text with a `rustfig-font:` comment naming an
 /// installed font: that family first, then the Fig font's, and the style
 /// the installed face has (RustFig's F7; not in gensvg).
@@ -1003,14 +1018,10 @@ impl Driver for SvgDriver {
             (t.size * ctx.ppi / 72.0 + 0.5) as i32
         );
         // C works on the bytes of the string.
-        let bytes = if t.font == 32 || t.font == 34 {
-            t.raw.as_slice()
-        } else {
-            xml_bytes(&t.raw, &t.cstring)
-        };
+        let bytes = xml_bytes(&t.raw, &t.cstring);
         if t.font == 32 || t.font == 34 {
             let table = if t.font == 32 { &SYMBOL_CHAR } else { &DINGBAT_CHAR };
-            for &b in bytes {
+            for b in font_codes(&t.raw, &t.cstring) {
                 fprintf!(out, "&#{};", table.get(usize::from(b)).copied().unwrap_or(0));
             }
         } else if t.special_text() {
@@ -1085,5 +1096,18 @@ fn special_text_body(out: &mut Out, t: &Text, s: &[u8]) {
     // C leaves these open, which no XML parser accepts.
     for _ in 0..open {
         out.puts("</tspan>");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::font_codes;
+
+    #[test]
+    fn symbol_codes_from_utf8_text_are_the_characters() {
+        // ∑ is Symbol code 0o345, written by RustFig as the character `å`.
+        assert_eq!(font_codes("å£a".as_bytes(), "å£a"), vec![0o345, 0o243, b'a']);
+        // A Latin-1 file: C's bytes as they are.
+        assert_eq!(font_codes(&[0o345, b'a'], "åa"), vec![0o345, b'a']);
     }
 }

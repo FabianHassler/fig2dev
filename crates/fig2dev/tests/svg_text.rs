@@ -105,11 +105,15 @@ fn text_attributes_as_gensvg_writes_them() {
 }
 
 #[test]
-fn symbol_text_is_looked_up_by_bytes() {
-    // U+00B1 in UTF-8 is the bytes C2 B1; C looks each up: 0xC2 is the
-    // real-part sign, 0xB1 the plus-minus sign.
+fn symbol_text_is_looked_up_by_character() {
+    // U+00B1 in UTF-8 is the bytes C2 B1. C looks each byte up (0xC2 is
+    // the real-part sign); a UTF-8 text is one code per character here, as
+    // the PostScript driver writes it, so RustFig's Symbol texts come out
+    // right. A Latin-1 file still goes byte by byte.
     let s = run(32, 4, "\\302\\261", &[]).unwrap();
-    assert_eq!(body(&s), "&#8476;&#177;");
+    assert_eq!(body(&s), "&#177;");
+    let s = run(32, 4, "\\345", &[]).unwrap();
+    assert_eq!(body(&s), "&#8721;");
 }
 
 #[test]
