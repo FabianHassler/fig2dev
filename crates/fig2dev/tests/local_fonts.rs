@@ -55,11 +55,15 @@ fn installed_font_is_embedded_in_pdf_and_named_in_svg() {
     assert!(msgs.is_empty(), "{msgs:?}");
     assert!(contains(&pdf, "/FontFile2"), "no embedded font file");
     assert!(contains(&pdf, "/Identity-H"));
-    let ps = figbase::text::find_local_font(&name).unwrap().post_script_name.clone();
+    let lf = figbase::text::find_local_font(&name).unwrap();
+    let ps = lf.post_script_name.clone();
     assert!(contains(&pdf, &format!("+{ps}")), "subset name +{ps} missing");
     let (svg, _) = run("svg", &f);
     let svg = String::from_utf8(svg).unwrap();
-    assert!(svg.contains(&format!("font-family=\"'{name}', ")), "{svg}");
+    assert!(
+        svg.contains(&format!("font-family=\"'{}', Helvetica\"", lf.family)),
+        "{svg}"
+    );
     let (eps, _) = run("eps", &f);
     let eps = String::from_utf8_lossy(&eps);
     assert!(

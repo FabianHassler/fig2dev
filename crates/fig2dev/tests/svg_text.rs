@@ -86,3 +86,63 @@ fn paper_size_sets_width_and_height() {
     let e = run(0, 4, "x", &[('z', Some("nosuch"))]).unwrap_err();
     assert_eq!(e, "Unknown paper size `nosuch'");
 }
+
+#[test]
+fn text_attributes_as_gensvg_writes_them() {
+    // Family by font / 4, italic by font % 2, bold by font % 4.
+    let s = run(18, 4, "x", &[]).unwrap();
+    assert!(
+        s.contains(
+            "<!-- Text -->\n<text xml:space=\"preserve\" x=\"600\" y=\"600\" fill=\"#000000\" font-family=\"Helvetica\" font-style=\"normal\" font-weight=\"bold\" font-size=\"200\" text-anchor=\"start\">x</text>\n"
+        ),
+        "{s}"
+    );
+    let s = run(32, 4, "a", &[]).unwrap();
+    assert!(
+        s.contains("font-family=\"Times,Symbol\" font-style=\"normal\" font-weight=\"normal\""),
+        "{s}"
+    );
+}
+
+#[test]
+fn symbol_text_is_looked_up_by_bytes() {
+    // U+00B1 in UTF-8 is the bytes C2 B1; C looks each up: 0xC2 is the
+    // real-part sign, 0xB1 the plus-minus sign.
+    let s = run(32, 4, "\\302\\261", &[]).unwrap();
+    assert_eq!(body(&s), "&#8476;&#177;");
+}
+
+#[test]
+fn elements_as_gensvg_writes_them() {
+    let fig = "#FIG 3.2\nLandscape\nCenter\nInches\nLetter\n100.00\nSingle\n-2\n1200 2\n\
+2 2 0 3 0 7 50 -1 20 0.0 0 0 -1 0 0 5\n\t 100 100 400 100 400 400 100 400 100 100\n\
+2 1 1 1 1 7 50 -1 -1 3.0 1 1 0 0 0 2\n\t 100 100 400 100\n\
+1 3 0 0 0 4 50 -1 10 0.0 1 0.0 1000 1000 200 200 1000 1000 1200 1000\n";
+    let mut ctx = Ctx {
+        lang: "svg".into(),
+        ..Ctx::default()
+    };
+    let mut dev = drivers::driver("svg").unwrap();
+    let objects = readfp_fig(&mut ctx, fig.as_bytes()).unwrap();
+    let svg = String::from_utf8(convert(&mut ctx, dev.as_mut(), &objects).unwrap().output).unwrap();
+    // Box: a `rect`; the reader scales the thickness 3 to 45 (1200 ppi), the
+    // stroke is 45 - 15 = 30 px.
+    assert!(
+        svg.contains(
+            "<!-- Line -->\n<rect x=\"100\" y=\"100\" width=\"300\" height=\"300\" fill=\"#ffffff\"\n\tstroke=\"#000000\" stroke-width=\"30px\"/>\n"
+        ),
+        "{svg}"
+    );
+    // Dashed polyline with round joins and caps.
+    assert!(
+        svg.contains(
+            "<!-- Line -->\n<polyline points=\" 100,100 400,100\"\n\tstroke=\"#0000ff\" stroke-width=\"8px\" stroke-linejoin=\"round\" stroke-linecap=\"round\" stroke-dasharray=\"30 30\"/>\n"
+        ),
+        "{svg}"
+    );
+    // A circle with no outline, filled with half of colour 4 (red).
+    assert!(
+        svg.contains("<!-- Circle -->\n<circle cx=\"1000\" cy=\"1000\" r=\"200\" fill=\"#7f0000\"/>\n"),
+        "{svg}"
+    );
+}

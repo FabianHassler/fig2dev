@@ -80,6 +80,7 @@ drivers as fig2dev/dev/...); app-defaults/Fig is xfig's resource file.
 - crates/fig2dev/src/drivers/scene.rs: fig2dev/fig2dev.c, fig2dev/dev/genps.c, fig2dev/dev/genbitmaps.c, fig2dev/dev/genpstex.c
 - crates/fig2dev/src/drivers/shape.rs: fig2dev/dev/genshape.c
 - crates/fig2dev/src/drivers/textyl.rs: fig2dev/dev/gentextyl.c, fig2dev/localmath.c
+- crates/fig2dev/src/drivers/svg.rs: fig2dev/dev/gensvg.c
 - crates/fig2dev/src/drivers/tikz.rs: fig2dev/dev/gentikz.c, fig2dev/dev/gentikz.h
 - crates/fig2dev/src/drivers/tk.rs: fig2dev/dev/gentk.c, fig2dev/dev/genptk.c, fig2dev/dev/tkpattern.c
 - crates/fig2dev/src/drivers/tpic.rs: fig2dev/dev/gentpic.c
