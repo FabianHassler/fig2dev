@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.2 — 2026-10-26
 
 - `-h` lists only the general options and the languages; `-h -L <lang>` (or `-L <lang> -h`, as in C) adds that language's options. The C program's `-h` lists every language's options.
 
