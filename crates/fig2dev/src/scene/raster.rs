@@ -159,7 +159,7 @@ fn draw_path(
                         .collect();
                     if let Some(lp) = build_path(&subs, t) {
                         let st = tiny_skia::Stroke {
-                            width: f((line_width * scale).max(0.5)),
+                            width: f((line_width * scale).max(0.5) + opts.adjust_px),
                             ..tiny_skia::Stroke::default()
                         };
                         pm.stroke_path(&lp, &paint(*fg, aa), &st, Transform::identity(), Some(&mask));
@@ -454,6 +454,17 @@ pub fn checked_size(w: f64, h: f64) -> Result<(u32, u32), String> {
     Ok((w as u32, h as u32))
 }
 
+/// Ghostscript with `-dGraphicsAlphaBits=k` draws strokes wider than
+/// PostScript says, by `k/(k*k-1)` pixel in all (measured on 1..8 thick
+/// lines for k = 2 and 4); in pixels of the `k`-times raster, per side.
+fn gs_smooth_adjust(k: u32) -> f64 {
+    let k = f64::from(k);
+    if k <= 1.0 {
+        return 0.0;
+    }
+    0.5 * k * k / (k * k - 1.0)
+}
+
 /// How a bitmap's edges are smoothed (fig2dev's `-S`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Smoothing {
@@ -505,10 +516,10 @@ pub fn render_sized(
         &RasterOptions {
             transform,
             min_line_px: 0.5 * ks,
-            adjust_px: if matches!(smoothing, Smoothing::None) {
-                GS_FILL_ADJUST
-            } else {
-                0.0
+            adjust_px: match smoothing {
+                Smoothing::None => GS_FILL_ADJUST,
+                Smoothing::Supersample(_) => gs_smooth_adjust(k),
+                Smoothing::Antialias => 0.0,
             },
             pattern,
         },
