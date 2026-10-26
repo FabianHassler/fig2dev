@@ -710,7 +710,7 @@ pub fn to_pdf_pages(
     };
     if let (Some(bg), None) = (background, layout) {
         c.fill_rgb(bg);
-        c.c.rect(0.0, 0.0, f(w), f(h));
+        c.c.rect(0.0, 0.0, f(w.ceil()), f(h.ceil()));
         c.c.fill_even_odd();
     }
     let mut images = Vec::new();
@@ -825,7 +825,8 @@ pub fn to_pdf_pages(
     let figure_page = [(0.0, 0.0)];
     let (page_w, page_h, places): (f64, f64, &[(f64, f64)]) = match layout {
         Some(l) => (f64::from(l.width), f64::from(l.height), &l.pages),
-        None => (w, h, &figure_page),
+        // ps2pdf crops to the EPS's integer BoundingBox
+        None => (w.ceil(), h.ceil(), &figure_page),
     };
     let mut page_ids = vec![(page_id, content_id)];
     for _ in 1..places.len() {
@@ -866,7 +867,12 @@ pub fn to_pdf_pages(
         minor
     };
     pdf.set_version(1, minor);
-    pdf.catalog(catalog_id).pages(tree_id);
+    let xmp_id = Ref::new(next + 1);
+    {
+        let mut cat = pdf.catalog(catalog_id);
+        cat.pages(tree_id);
+        cat.metadata(xmp_id);
+    }
     pdf.pages(tree_id)
         .kids(page_ids.iter().map(|p| p.0))
         .count(i32::try_from(page_ids.len()).unwrap_or(i32::MAX));
@@ -1048,7 +1054,55 @@ pub fn to_pdf_pages(
         info.modified_date(date());
     }
     info.finish();
+    pdf.stream(xmp_id, xmp_packet(meta).as_bytes())
+        .pair(Name(b"Type"), Name(b"Metadata"))
+        .pair(Name(b"Subtype"), Name(b"XML"));
     pdf.finish()
+}
+
+/// The XMP packet ghostscript's pdfwrite adds (Producer, dates, creator tool,
+/// title), as `ps2pdf` output has it.
+fn xmp_packet(meta: &Meta<'_>) -> String {
+    fn esc(s: &str) -> String {
+        s.chars()
+            .filter(|c| !c.is_control() || *c == '\t')
+            .map(|c| match c {
+                '&' => "&amp;".to_string(),
+                '<' => "&lt;".to_string(),
+                '>' => "&gt;".to_string(),
+                c => c.to_string(),
+            })
+            .collect()
+    }
+    let mut x = String::from(
+        "<?xpacket begin='\u{feff}' id='W5M0MpCehiHzreSzNTczkc9d'?>\n\
+         <x:xmpmeta xmlns:x='adobe:ns:meta/'>\n\
+         <rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>\n\
+         <rdf:Description rdf:about='' xmlns:pdf='http://ns.adobe.com/pdf/1.3/' pdf:Producer='fig2dev (Rust)'/>\n",
+    );
+    let dates = match &meta.date {
+        Some(d) => {
+            let iso = format!(
+                "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+                d.year, d.month, d.day, d.hour, d.minute, d.second
+            );
+            format!(
+                "<xmp:ModifyDate>{iso}</xmp:ModifyDate><xmp:CreateDate>{iso}</xmp:CreateDate>\
+                 <xmp:MetadataDate>{iso}</xmp:MetadataDate>"
+            )
+        }
+        None => String::new(),
+    };
+    x.push_str(&format!(
+        "<rdf:Description rdf:about='' xmlns:xmp='http://ns.adobe.com/xap/1.0/'>{dates}\
+         <xmp:CreatorTool>{}</xmp:CreatorTool></rdf:Description>\n\
+         <rdf:Description rdf:about='' xmlns:dc='http://purl.org/dc/elements/1.1/' dc:format='application/pdf'>\
+         <dc:title><rdf:Alt><rdf:li xml:lang='x-default'>{}</rdf:li></rdf:Alt></dc:title></rdf:Description>\n\
+         </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end='w'?>",
+        esc(CREATOR),
+        esc(&meta.title)
+    ));
+    x
 }
 
 #[cfg(test)]
@@ -1059,6 +1113,16 @@ mod tests {
     fn empty_pdf_is_valid_header() {
         let pdf = to_pdf(&Scene::default(), &Rect::EMPTY, 1.0, None, Some("T"));
         assert!(pdf.starts_with(b"%PDF-"));
+    }
+
+    #[test]
+    fn media_box_is_the_integer_bounding_box_and_xmp_follows() {
+        let b = Rect::new(Point::ZERO, Point::new(2000.0, 1000.0));
+        let pdf = to_pdf(&Scene::default(), &b, 1.0, None, Some("A&B"));
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("/MediaBox [0 0 120 60]"), "{text}");
+        assert!(text.contains("/Type /Metadata"));
+        assert!(text.contains("<dc:title><rdf:Alt><rdf:li xml:lang='x-default'>A&amp;B</rdf:li>"));
     }
 
     #[test]
