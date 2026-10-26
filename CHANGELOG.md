@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0 — 2026-10-26
+
+- Hardening (RustFig B11), checked against fig2dev 3.2.9a: fig2dev's own test suite passes 88 of 88 (was 82, 6 failing).
+- SVG is now written by `drivers/svg.rs`, a port of `gensvg.c` object by object: byte-identical with C on 284 of 299 sample figures (the rest: Latin-1 text C writes as invalid UTF-8, written as valid UTF-8 here). Texts with a `# rustfig-font:` comment keep the installed family first. Symbol and ZapfDingbats texts read from UTF-8 take one code per character (Latin-1 files go byte by byte, as in C).
+- Bitmaps: without smoothing, shapes grow by ghostscript's `fill_adjust` and embedded EPS pictures are hard-edged, as gs draws them (`RasterOptions::adjust_px`, new public field); with `-S 2`/`-S 4` strokes widen as gs's alpha bits make them. `-N` greys embedded EPS pictures.
+- EPS/PDF: a dash style value of 0 draws solid (as `genps`); the PDF MediaBox is the integer bounding box (as ps2pdf), and PDF files carry an XMP metadata packet.
+- Options and messages as `fig2dev.c`: `-f` with an unknown font warns and goes on, `-b` may be negative, `-V` and `-h` (also `-L <lang> -h`) print C's text; no stale "planned" labels (only `-j` stays unported).
+- Test harness: koi8-r iconv names, `AS_ECHO` expanded, `test2` (MediaBox probe) ported to Rust.
+
 ## 0.8.0 — 2026-10-23
 
 - Installed fonts per text (RustFig F7): a text whose comment is `# rustfig-font: <Family Style>` is set in that installed font (found through figbase's `fontdb`; new `figbase::text::{find_local_font, LocalFont, parse_local_font_comment}`, `TextPrim::local_font`), with the Fig font number as the fallback. PDF embeds a subset (CID font, Identity-H, TrueType `FontFile2` or OpenType-CFF `FontFile3`, widths and ToUnicode from the font); PostScript and EPS embed TrueType subsets as Type 42 fonts and draw CFF fonts as outlines; SVG writes `font-family=\"'Family', <the Fig font's families>\"` (no font data embedded); bitmaps use the font's outlines. A font whose `fsType` forbids embedding (restricted licence, no subsetting, bitmaps only) is drawn as outlines in PDF and PostScript, with a message. A family that is not installed falls back to the Fig font with a message (stderr); the LaTeX-family drivers ignore the comment and keep the Fig number. Output for figures without the comment is unchanged. New dependency: `subsetter` 0.2 (typst's font subsetter, default features off, so no `skrifa`), and `fontdb` as a dev-dependency of `fig2dev`. Tests: `tests/local_fonts.rs` (use a font found at test time, skip without one).
