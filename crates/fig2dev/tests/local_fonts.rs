@@ -45,7 +45,7 @@ fn contains(hay: &[u8], needle: &str) -> bool {
 }
 
 #[test]
-fn installed_font_is_embedded_in_pdf_and_named_in_svg() {
+fn installed_font_is_embedded_in_pdf() {
     let Some(name) = installed_truetype() else {
         eprintln!("skipped: no installed TrueType font found");
         return;
@@ -59,7 +59,9 @@ fn installed_font_is_embedded_in_pdf_and_named_in_svg() {
     assert!(contains(&pdf, &format!("+{ps}")), "subset name +{ps} missing");
     let (svg, _) = run("svg", &f);
     let svg = String::from_utf8(svg).unwrap();
-    assert!(svg.contains(&format!("font-family=\"'{name}', ")), "{svg}");
+    // gensvg writes the Fig font's family, never an installed one.
+    assert!(!svg.contains(&format!("font-family=\"{name}")), "{svg}");
+    assert!(svg.contains("font-family=\"Helvetica\""), "{svg}");
     let (eps, _) = run("eps", &f);
     let eps = String::from_utf8_lossy(&eps);
     assert!(

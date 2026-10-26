@@ -24,6 +24,7 @@ pub mod pstex;
 pub mod pstricks;
 pub mod scene;
 pub mod shape;
+pub mod svg;
 pub mod textyl;
 pub mod tikz;
 pub mod tk;
@@ -34,6 +35,11 @@ pub mod tpic;
 /// SVG, the box, pstex, pdftex and the bitmaps are drawn from the scene
 /// ([`scene`]).
 pub fn driver(lang: &str) -> Option<Box<dyn Driver>> {
+    // gensvg.c's output object by object; the scene driver still gives the
+    // svg language its option help.
+    if svg::writes(lang) {
+        return svg::new(lang);
+    }
     if scene::writes(lang) {
         return scene::new(lang);
     }

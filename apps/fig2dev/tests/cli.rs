@@ -412,8 +412,8 @@ fn general_option_values_as_fig2dev() {
         svg[at..].split('"').next().unwrap().to_string()
     };
     assert_eq!(size(&[]), "200");
-    assert_eq!(size(&["-s", "0"]), "183.33");
-    assert_eq!(size(&["-s", "-3"]), "183.33");
+    assert_eq!(size(&["-s", "0"]), "183");
+    assert_eq!(size(&["-s", "-3"]), "183");
     assert_eq!(size(&["-s", "12pt"]), "200");
 }
 
