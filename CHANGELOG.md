@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1 — 2026-10-26
+
+- `help_text.rs` (fig2dev.c's `help_msg`) listed in `LICENSE-xfig`; built only for native targets (the CLI uses it). v0.9.0 failed the licence check.
+
 ## 0.9.0 — 2026-10-26
 
 - Hardening (RustFig B11), checked against fig2dev 3.2.9a: fig2dev's own test suite passes 88 of 88 (was 82, 6 failing).

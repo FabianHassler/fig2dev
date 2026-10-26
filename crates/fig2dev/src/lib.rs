@@ -19,6 +19,7 @@ pub mod bound;
 pub mod cli;
 pub mod drivers;
 pub mod gendev;
+#[cfg(not(target_arch = "wasm32"))]
 mod help_text;
 pub mod languages;
 pub mod object;
