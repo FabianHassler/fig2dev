@@ -49,6 +49,8 @@ Every fig2dev language is ported: PostScript, EPS, PDF, SVG, PNG, GIF, JPEG, TIF
 
 Against fig2dev 3.2.9a (C):
 
+- Drawing order: objects sharing a depth come in xfig's order (arcs, compounds, ellipses, lines, splines, texts, each in file order), as xfig shows them. The C program sorts them with `qsort`, which leaves their order to the C library (macOS and glibc differ), so where objects of one depth overlap, its output can differ.
+
 - fig2dev's own test suite: 82 pass, 6 fail (`epsi` and two embedded-PostScript bitmap tests that need a PostScript interpreter, the `/MediaBox` helper program, a version-2 font size, the KOI8-R case whose `iconv KOI8R` macOS lacks), 6 need unported languages.
 - TeX family, plotters, EMF, Tk, pic, map: byte-identical to fig2dev on the test figures and on nearly all of xfig's ≈2,550 sample figures (the rest: Latin-1 text bytes, a few out-of-bounds reads in the C code).
 - EPS/PDF/SVG/bitmaps: same geometry as fig2dev. The C program writes PostScript and has ghostscript turn it into PDF and bitmaps; this port writes PDF itself and rasterises with tiny-skia, so PNG, GIF, JPEG etc. differ from ghostscript's pixels at the edges (antialiasing, font hinting) and are compared visually, not byte for byte.

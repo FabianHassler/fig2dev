@@ -84,7 +84,7 @@ fn filled_and_hatched_polygons() {
     assert_eq!(
         out,
         r##"\begin{pspicture}(-0.0000,-0.0000)(8.5196,7.0379)
-\pspolygon[linewidth=0.0159,linecolor=black,fillcolor=white,hatchcolor=black,fillstyle=crosshatch*,hatchangle=-0.00](0.0254,1.2954)(2.5654,1.2954)(1.2954,0.0254)
+\pspolygon[linewidth=0.0159,linecolor=black,fillstyle=solid,fillcolor=black](0.0254,7.0104)(2.5654,7.0104)(2.5654,5.7404)(0.0254,5.7404)
 \newgray{grayx}{0.5000}%
 \pspolygon[linewidth=0.0159,linecolor=red,fillstyle=solid,fillcolor=grayx](2.9887,7.0104)(5.5287,7.0104)(5.5287,5.7404)(2.9887,5.7404)
 \newrgbcolor{usrclr}{0.9961 0.5000 0.0000}%
@@ -98,7 +98,7 @@ fn filled_and_hatched_polygons() {
 \pspolygon[linewidth=0.0159,linecolor=black,fillcolor=white,hatchcolor=black,fillstyle=hlines*,hatchangle=-30.00](0.0254,3.2004)(2.5654,3.2004)(2.5654,1.9304)(0.0254,1.9304)
 \pspolygon[linewidth=0.0159,linecolor=red,fillcolor=green,hatchcolor=red,fillstyle=vlines*,hatchangle=-45.00](2.9887,3.2004)(5.5287,3.2004)(5.5287,1.9304)(2.9887,1.9304)
 \pspolygon[linewidth=0.0159,linecolor=black,fillcolor=white,hatchcolor=black,fillstyle=crosshatch*,hatchangle=-10.00](5.9521,3.2004)(8.4921,3.2004)(8.4921,1.9304)(5.9521,1.9304)
-\pspolygon[linewidth=0.0159,linecolor=black,fillstyle=solid,fillcolor=black](0.0254,7.0104)(2.5654,7.0104)(2.5654,5.7404)(0.0254,5.7404)
+\pspolygon[linewidth=0.0159,linecolor=black,fillcolor=white,hatchcolor=black,fillstyle=crosshatch*,hatchangle=-0.00](0.0254,1.2954)(2.5654,1.2954)(1.2954,0.0254)
 \end{pspicture}
 "##
     );
@@ -134,7 +134,9 @@ fn arc_box_ellipses_and_arcs() {
     assert_eq!(
         out,
         r##"\begin{pspicture}(-0.0000,-0.0000)(9.3578,11.4745)
-\psframe[cornersize=absolute,linearc=0.3810,linewidth=0.0159,linecolor=black](0.0254,10.1769)(2.5654,11.4469)
+\psarc[linewidth=0.0159,linecolor=black]{-}(2.5654,6.3669){1.2700}{180.0000}{0.0000}%
+\pspolygon[linewidth=0.0159,linecolor=black,fillstyle=solid,fillcolor=black](1.2954,6.3669)(1.2319,6.1129)(1.3589,6.1129)
+\pspolygon[linewidth=0.0159,linecolor=black,fillstyle=solid,fillcolor=black](3.8354,6.3669)(3.7719,6.1129)(3.8989,6.1129)
 \newrgbcolor{whitestxxv}{1.0000 1.0000 1.0000}%
 \pswedge[linewidth=0.0159,linestyle=dotted,dotsep=0.1270,linecolor=black,fillstyle=solid,fillcolor=whitestxxv](7.6454,6.3669){1.2700}{0.0000}{180.0000}%
 \psarc[linewidth=0.0159,linecolor=black]{-}(2.5654,3.8269){1.2700}{0.0000}{180.0000}%
@@ -145,9 +147,7 @@ fn arc_box_ellipses_and_arcs() {
 \rput{30.0001}(3.8354,8.4836){\psellipse[linewidth=0.0318,linestyle=dashed,dash=0.1270 0.1270,linecolor=red,fillstyle=solid,fillcolor=whitestxxx](0,0)(0.8467,0.4233)}%
 \rput{45.0001}(6.3754,8.4836){\psellipse[linewidth=0.0159,linecolor=black,fillcolor=white,hatchcolor=black,fillstyle=crosshatch*,hatchangle=-75.00](0,0)(0.8467,0.4233)}%
 \psellipse[linewidth=0.0159,linecolor=black](8.4921,8.4836)(0.8467,0.4233)
-\psarc[linewidth=0.0159,linecolor=black]{-}(2.5654,6.3669){1.2700}{180.0000}{0.0000}%
-\pspolygon[linewidth=0.0159,linecolor=black,fillstyle=solid,fillcolor=black](1.2954,6.3669)(1.2319,6.1129)(1.3589,6.1129)
-\pspolygon[linewidth=0.0159,linecolor=black,fillstyle=solid,fillcolor=black](3.8354,6.3669)(3.7719,6.1129)(3.8989,6.1129)
+\psframe[cornersize=absolute,linearc=0.3810,linewidth=0.0159,linecolor=black](0.0254,10.1769)(2.5654,11.4469)
 \end{pspicture}
 "##
     );
@@ -264,14 +264,14 @@ fn all_arrow_types_with_pstricks_arrows() {
     assert_eq!(
         out,
         r##"\begin{pspicture}(-0.0000,-0.0000)(5.2218,4.7773)
-\psline[linewidth=0.0476,tbarsize=0.1905 2,bracketlength=1.6667,linecolor=black]{[-]}(0.0698,0.1651)(5.1498,0.1651)
+\psline[linewidth=0.0476,arrowsize=0.1905 2,arrowlength=1.66667,arrowinset=1.00000,ArrowFill=false,linecolor=black]{<->}(0.0698,4.6101)(5.1498,4.6101)
 \psline[linewidth=0.0476,arrowsize=0.1905 2,arrowlength=1.66667,arrowinset=0.30000,linecolor=red]{<->}(0.0698,3.9751)(5.1498,3.9751)
 \psline[linewidth=0.0476,arrowsize=0.1905 2,arrowlength=0.83333,arrowinset=-1.00000,linecolor=black]{**->}(0.0698,3.3401)(5.1498,3.3401)
 \psline[linewidth=0.0476,dotsize=0.3175 2,linecolor=black]{<-o}(0.0698,2.7051)(5.1498,2.7051)
 \psline[linewidth=0.0476,arrowsize=0.1905 2,arrowlength=1.66667,arrowinset=0.00000,linecolor=black]{<-<}(0.0698,2.0701)(5.1498,2.0701)
 \psline[linewidth=0.0476,arrowsize=0.1905 2,arrowlength=1.66667,arrowinset=0.00000,linecolor=black]{<->}(0.0698,1.4351)(5.1498,1.4351)
 \psline[linewidth=0.0476,arrowsize=0.1905 2,arrowlength=1.28205,arrowinset=-0.30000,linecolor=black]{>->}(0.0698,0.8001)(5.1498,0.8001)
-\psline[linewidth=0.0476,arrowsize=0.1905 2,arrowlength=1.66667,arrowinset=1.00000,ArrowFill=false,linecolor=black]{<->}(0.0698,4.6101)(5.1498,4.6101)
+\psline[linewidth=0.0476,tbarsize=0.1905 2,bracketlength=1.6667,linecolor=black]{[-]}(0.0698,0.1651)(5.1498,0.1651)
 \end{pspicture}
 "##
     );

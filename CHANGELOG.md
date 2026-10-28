@@ -2,7 +2,8 @@
 
 ## 0.9.3 — 2026-10-28
 
-- On crates.io as `figbase`, `fig2dev-rs-lib` (the library, still `fig2dev::…` in code) and `fig2dev-rs` (`cargo install fig2dev-rs` installs the `fig2dev` program); the name `fig2dev` stays the C program's. Packages renamed: `fig2dev` → `fig2dev-rs-lib`, `fig2dev-cli` → `fig2dev-rs`. The packages carry the licence texts (MIT, Apache-2.0 and xfig's notice, SPDX `(MIT OR Apache-2.0) AND Xfig`), keywords and the README. No code changes.
+- On crates.io as `figbase`, `fig2dev-rs-lib` (the library, still `fig2dev::…` in code) and `fig2dev-rs` (`cargo install fig2dev-rs` installs the `fig2dev` program); the name `fig2dev` stays the C program's. Packages renamed: `fig2dev` → `fig2dev-rs-lib`, `fig2dev-cli` → `fig2dev-rs`. The packages carry the licence texts (MIT, Apache-2.0 and xfig's notice, SPDX `(MIT OR Apache-2.0) AND Xfig`), keywords and the README.
+- Drawing order: objects that share a depth are drawn in xfig's order (arcs, compounds, ellipses, lines, splines, texts, each in file order), in every output language, so the output looks like xfig's screen. fig2dev 3.2.9a sorts them with the C library's `qsort`, whose order of equal depths depends on the C library (this port followed macOS's until now).
 
 ## 0.9.2 — 2026-10-26
 

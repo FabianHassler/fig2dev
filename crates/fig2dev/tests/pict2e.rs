@@ -256,8 +256,12 @@ fn colours_points_pictures_texts() {
 \else
   \let\XFigeepicthickness\allinethickness
 \fi
-{\color{black}
-\put(1822,55){\makebox(0,0)[rb]{\smash{\fontsize{10}{12}\usefont{T1}{ptm}{m}{n}$\alpha$}}}
+{\color[rgb]{0.753,0.502,0.251}
+\linethickness{15\unitlength}\XFigeepicthickness{15\unitlength}%\thicklines
+\Line(22,4255)(1804,3562)
+\linethickness{7\unitlength}\XFigeepicthickness{7\unitlength}%\thinlines
+\polyline(1706,3632)(1807,3561)(1684,3577)
+\color{black}
 \linethickness{15\unitlength}\XFigeepicthickness{15\unitlength}%\thicklines
 \Line(161,2855)(1683,2855)
 \polygon*(1686,2825)(1806,2855)(1686,2885)
@@ -283,10 +287,8 @@ fn colours_points_pictures_texts() {
 \put(4622,1955){\rotatebox{90}{\smash{\rlap{\resizebox*{-900\unitlength}{1200\unitlength}{\includegraphics{dir/pic.png}}}}}}
 \color[rgb]{0.753,0.502,0.251}
 \put(622,455){\rotatebox{30.0}{\makebox(0,0)[b]{\smash{\fontsize{12}{14.4}\usefont{T1}{ptm}{m}{n}a\_b\ \{x\}}}}}
-\linethickness{15\unitlength}\XFigeepicthickness{15\unitlength}%\thicklines
-\Line(22,4255)(1804,3562)
-\linethickness{7\unitlength}\XFigeepicthickness{7\unitlength}%\thinlines
-\polyline(1706,3632)(1807,3561)(1684,3577)
+\color{black}
+\put(1822,55){\makebox(0,0)[rb]{\smash{\fontsize{10}{12}\usefont{T1}{ptm}{m}{n}$\alpha$}}}
 }%
 \end{picture}%
 "#

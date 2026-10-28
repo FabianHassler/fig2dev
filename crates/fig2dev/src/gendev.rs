@@ -677,31 +677,31 @@ pub fn has_objects(com: &Compound) -> bool {
         || com.compounds.iter().any(has_objects)
 }
 
-/// `compound_dump`: every object, compounds first, then arcs, ellipses,
-/// lines, splines, texts, with its depth.
-fn compound_dump<'a>(com: &'a Compound, out: &mut Vec<(i32, Obj<'a>)>) {
-    for c in &com.compounds {
-        compound_dump(c, out);
-    }
+/// Every object with its depth in xfig's list order (`u_redraw.c`
+/// `redisplay_objects`): arcs, compounds (their objects in the same order),
+/// ellipses, lines, splines, texts, each list in file order. (fig2dev's
+/// `compound_dump` puts compounds first.)
+fn xfig_dump<'a>(com: &'a Compound, out: &mut Vec<(i32, Obj<'a>)>) {
     out.extend(com.arcs.iter().map(|a| (a.depth, Obj::Arc(a))));
+    for c in &com.compounds {
+        xfig_dump(c, out);
+    }
     out.extend(com.ellipses.iter().map(|e| (e.depth, Obj::Ellipse(e))));
     out.extend(com.lines.iter().map(|l| (l.depth, Obj::Line(l))));
     out.extend(com.splines.iter().map(|s| (s.depth, Obj::Spline(s))));
     out.extend(com.texts.iter().map(|t| (t.depth, Obj::Text(t))));
 }
 
-/// Every object with its depth in the order the drivers draw them
-/// (`gendev_objects`): deepest first; objects of one depth where the macOS
-/// C library's `qsort` puts `compound_dump`'s order, as in the reference
-/// fig2dev.
+/// Every object with its depth in the order the drivers draw them: deepest
+/// first, and objects of one depth in xfig's order ([`xfig_dump`]), so
+/// every output shows what xfig shows on the screen. This departs from
+/// fig2dev 3.2.9a, whose `gendev_objects` sorts `compound_dump`'s list
+/// with the C library's `qsort`; that sort is not stable, so the order of
+/// objects sharing a depth there depends on the C library.
 pub fn drawing_order(objects: &Compound) -> Vec<(i32, Obj<'_>)> {
     let mut recs = Vec::new();
-    compound_dump(objects, &mut recs);
-    // Deepest first, with the C library's qsort as macOS has it (not
-    // stable), so that objects of one depth come in fig2dev's order.
-    crate::drivers::shape::qsort(&mut recs, &mut |a: &(i32, Obj<'_>), b: &(i32, Obj<'_>)| {
-        b.0.wrapping_sub(a.0)
-    });
+    xfig_dump(objects, &mut recs);
+    recs.sort_by_key(|r| std::cmp::Reverse(r.0));
     recs
 }
 
