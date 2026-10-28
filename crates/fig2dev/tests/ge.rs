@@ -38,7 +38,7 @@ fn unknown_option() {
     assert!(d.option(&mut ctx, 'G', Some("1")).is_ok());
 }
 
-/// Opt-in: `cargo test -p fig2dev --test ge -- --ignored --nocapture`.
+/// Opt-in: `cargo test -p fig2dev-rs-lib --test ge -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {

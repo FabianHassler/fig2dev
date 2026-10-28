@@ -490,7 +490,7 @@ fn hostile_values_dont_panic() {
     }
 }
 
-/// Opt-in: `cargo test -p fig2dev --test pstricks -- --ignored --nocapture`.
+/// Opt-in: `cargo test -p fig2dev-rs-lib --test pstricks -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {

@@ -112,7 +112,7 @@ fn options() {
     assert_eq!(out, EXPECTED_OPTS);
 }
 
-/// Opt-in: `cargo test -p fig2dev --test mf -- --ignored --nocapture`.
+/// Opt-in: `cargo test -p fig2dev-rs-lib --test mf -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {

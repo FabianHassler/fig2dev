@@ -6,7 +6,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-publish = false
+homepage.workspace = true
+readme = "README.md"
+keywords = ["fig", "xfig", "fig2dev", "geometry", "fonts"]
+categories = ["graphics", "rendering::data-formats"]
 
 [lints]
 workspace = true

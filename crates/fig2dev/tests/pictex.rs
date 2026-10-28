@@ -130,7 +130,7 @@ fn hostile_values_dont_panic() {
     let _ = run("pictex", body, &[]);
 }
 
-/// Opt-in: `cargo test -p fig2dev --test pictex -- --ignored --nocapture`.
+/// Opt-in: `cargo test -p fig2dev-rs-lib --test pictex -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {

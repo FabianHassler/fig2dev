@@ -9,21 +9,29 @@ It was developed as part of [RustFig](https://github.com/FabianHassler/rustfig),
 | Crate | Path | Role |
 |---|---|---|
 | `figbase` | `crates/figbase` | what fig2dev and RustFig share: geometry, X-splines, arrowheads, Fig fonts (tables, metrics, glyph outlines), colours, styles |
-| `fig2dev` | `crates/fig2dev` | the library: Fig reader (1.3 to 3.2), options, drivers, scene (display list), rasteriser (tiny-skia), fill patterns |
-| `fig2dev-cli` | `apps/fig2dev` | the command line; the binary is called `fig2dev` |
+| `fig2dev-rs-lib` | `crates/fig2dev` | the library (crate `fig2dev` in code): Fig reader (1.3 to 3.2), options, drivers, scene (display list), rasteriser (tiny-skia), fill patterns |
+| `fig2dev-rs` | `apps/fig2dev` | the command line; the binary is called `fig2dev` |
 | `xtask` | `xtask` | `cargo xtask licences` |
 
-The library crate and the program share the name `fig2dev`; the program lives in the package `fig2dev-cli` with `[[bin]] name = "fig2dev"`, so `cargo install --path apps/fig2dev` installs `fig2dev` and `fig2dev = { git = ... }` gives the library.
+The name `fig2dev` belongs to the C program, so the packages are called `fig2dev-rs` (the program, `[[bin]] name = "fig2dev"`) and `fig2dev-rs-lib` (the library, `[lib] name = "fig2dev"`): `cargo install fig2dev-rs` installs `fig2dev`, and `fig2dev-rs-lib = "0.9"` gives the library, used as `fig2dev::…`.
 
 ## Installation
 
-You need Rust 1.92 or newer from [rustup](https://rustup.rs). There are no C libraries to install, and the crates are not on crates.io.
+You need Rust 1.92 or newer from [rustup](https://rustup.rs). There are no C libraries to install.
+
+From crates.io:
+
+```
+cargo install --locked fig2dev-rs
+```
 
 Straight from GitHub, a given release:
 
 ```
-cargo install --locked --git https://github.com/FabianHassler/fig2dev --tag v0.9.2 fig2dev-cli
+cargo install --locked --git https://github.com/FabianHassler/fig2dev --tag v0.9.3 fig2dev-rs
 ```
+
+As a library: `fig2dev-rs-lib = "0.9"` (used as `fig2dev::…`; and `figbase = "0.9"` for the shared geometry, fonts and colours) in your `Cargo.toml`.
 
 Or from a clone:
 
@@ -33,7 +41,7 @@ cd fig2dev
 cargo install --locked --path apps/fig2dev
 ```
 
-Either way the program is installed as `fig2dev` in `~/.cargo/bin` (on Windows `%USERPROFILE%\.cargo\bin`), which rustup puts on your `PATH`. If the C fig2dev is installed too (for example from Homebrew or a Linux package), the one that comes first on `PATH` runs; `which -a fig2dev` lists both. Remove it again with `cargo uninstall fig2dev-cli`.
+Either way the program is installed as `fig2dev` in `~/.cargo/bin` (on Windows `%USERPROFILE%\.cargo\bin`), which rustup puts on your `PATH`. If the C fig2dev is installed too (for example from Homebrew or a Linux package), the one that comes first on `PATH` runs; `which -a fig2dev` lists both. Remove it again with `cargo uninstall fig2dev-rs`.
 
 ## Languages and status
 
@@ -59,7 +67,7 @@ Text uses installed fonts (URW/Nimbus, macOS and Windows system faces, TeX Gyre 
 Tests that compare with the C program or its test data skip when these are missing:
 
 - `FIG2DEV_SOURCES=/path/to/dir` must contain `fig2dev-3.2.9a/` (the unpacked source from <https://sourceforge.net/projects/mcj/files/>) and, for the sample-figure tests, `xfig-3.2.9a/`. The default is `old/` in the repository root (gitignored).
-- fig2dev's own suite, which needs those sources: `FIG2DEV_SOURCES=... cargo test -p fig2dev-cli --test fig2dev_suite -- --ignored --nocapture` (report in `target/fig2dev-suite.txt`).
+- fig2dev's own suite, which needs those sources: `FIG2DEV_SOURCES=... cargo test -p fig2dev-rs --test fig2dev_suite -- --ignored --nocapture` (report in `target/fig2dev-suite.txt`).
 - Tests that call a reference fig2dev look for `/opt/homebrew/bin/fig2dev` and skip without it.
 
 ## Licence

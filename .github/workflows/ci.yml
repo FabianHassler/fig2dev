@@ -22,4 +22,4 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo xtask licences
-      - run: cargo check -p fig2dev --target wasm32-unknown-unknown
+      - run: cargo check -p fig2dev-rs-lib --target wasm32-unknown-unknown

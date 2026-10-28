@@ -104,7 +104,7 @@ fn hostile_values_dont_panic() {
     let _ = run("textyl", body, &[]);
 }
 
-/// Opt-in: `cargo test -p fig2dev --test textyl -- --ignored --nocapture`.
+/// Opt-in: `cargo test -p fig2dev-rs-lib --test textyl -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {

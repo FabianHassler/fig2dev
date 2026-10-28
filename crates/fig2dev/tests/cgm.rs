@@ -165,7 +165,7 @@ fn options() {
     assert_eq!(msgs[1], "Command was: ralcgm -b - -");
 }
 
-/// Opt-in: `cargo test -p fig2dev --test cgm -- --ignored --nocapture`.
+/// Opt-in: `cargo test -p fig2dev-rs-lib --test cgm -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {

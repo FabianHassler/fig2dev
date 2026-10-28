@@ -204,7 +204,7 @@ fn hostile_values_dont_panic() {
     }
 }
 
-/// Opt-in: `cargo test -p fig2dev --test epic -- --ignored --nocapture`
+/// Opt-in: `cargo test -p fig2dev-rs-lib --test epic -- --ignored --nocapture`
 /// (every library figure with `RUSTFIG_TEX_ALL=1`).
 #[test]
 #[ignore]

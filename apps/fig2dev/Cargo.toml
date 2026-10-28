@@ -1,14 +1,17 @@
 [package]
-# The package is `fig2dev-cli` because the library crate is `fig2dev`; the
+# The package is `fig2dev-rs` (the C program owns the name fig2dev); the
 # installed program is still called `fig2dev` (see [[bin]]).
-name = "fig2dev-cli"
+name = "fig2dev-rs"
 description = "fig2dev's command line, a Rust port of fig2dev 3.2.9a"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-publish = false
+homepage.workspace = true
+readme = "README.md"
+keywords = ["fig", "xfig", "fig2dev", "converter", "cli"]
+categories = ["command-line-utilities", "graphics"]
 
 [[bin]]
 name = "fig2dev"

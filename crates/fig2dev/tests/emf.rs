@@ -192,7 +192,7 @@ fn pictures_other_than_png_are_unsupported_and_missing_ones_reported() {
     assert!(!record_types(&b).contains(&81));
 }
 
-/// Opt-in: `cargo test -p fig2dev --test emf -- --ignored`.
+/// Opt-in: `cargo test -p fig2dev-rs-lib --test emf -- --ignored`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {

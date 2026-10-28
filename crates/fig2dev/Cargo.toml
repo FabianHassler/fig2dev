@@ -1,12 +1,19 @@
 [package]
-name = "fig2dev"
+name = "fig2dev-rs-lib"
 description = "fig2dev's object model, reader and output drivers, a Rust port of fig2dev 3.2.9a"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-publish = false
+homepage.workspace = true
+readme = "README.md"
+keywords = ["fig", "xfig", "fig2dev", "converter", "latex"]
+categories = ["graphics", "rendering::data-formats", "multimedia::images"]
+
+# The crate is still `fig2dev` in code (`use fig2dev::…`).
+[lib]
+name = "fig2dev"
 
 [lints]
 workspace = true

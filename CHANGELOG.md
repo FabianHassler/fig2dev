@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.3 — 2026-10-28
+
+- On crates.io as `figbase`, `fig2dev-rs-lib` (the library, still `fig2dev::…` in code) and `fig2dev-rs` (`cargo install fig2dev-rs` installs the `fig2dev` program); the name `fig2dev` stays the C program's. Packages renamed: `fig2dev` → `fig2dev-rs-lib`, `fig2dev-cli` → `fig2dev-rs`. The packages carry the licence texts (MIT, Apache-2.0 and xfig's notice, SPDX `(MIT OR Apache-2.0) AND Xfig`), keywords and the README. No code changes.
+
 ## 0.9.2 — 2026-10-26
 
 - `-h` lists only the general options and the languages; `-h -L <lang>` (or `-L <lang> -h`, as in C) adds that language's options. The C program's `-h` lists every language's options.

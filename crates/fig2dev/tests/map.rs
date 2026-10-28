@@ -73,7 +73,7 @@ fn border_and_magnification() {
     );
 }
 
-/// Opt-in: `cargo test -p fig2dev --test map -- --ignored --nocapture`.
+/// Opt-in: `cargo test -p fig2dev-rs-lib --test map -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {

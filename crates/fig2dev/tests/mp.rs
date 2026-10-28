@@ -177,7 +177,7 @@ fn layers_and_tex_mode() {
     assert_eq!(out, EXPECTED_TEX);
 }
 
-/// Opt-in: `cargo test -p fig2dev --test mp -- --ignored --nocapture`.
+/// Opt-in: `cargo test -p fig2dev-rs-lib --test mp -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {

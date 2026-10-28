@@ -496,7 +496,7 @@ fn hostile_values_dont_panic() {
     }
 }
 
-/// Opt-in: `cargo test -p fig2dev --test tikz -- --ignored --nocapture`.
+/// Opt-in: `cargo test -p fig2dev-rs-lib --test tikz -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {

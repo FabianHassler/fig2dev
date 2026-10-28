@@ -128,7 +128,7 @@ fn hostile_values_dont_panic() {
     }
 }
 
-/// Opt-in: `cargo test -p fig2dev --test latex -- --ignored --nocapture`.
+/// Opt-in: `cargo test -p fig2dev-rs-lib --test latex -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn same_as_fig2dev() {
