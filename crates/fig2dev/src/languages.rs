@@ -169,6 +169,7 @@ pub const LANGUAGES: &[Language] = &[
     lang("ptk", "PTk (Perl/Tk toolkit)", "ptk", &[], Vector, Available),
     lang("shape", "SHAPE (ShapePar definition)", "shape", &[], Vector, Available),
     lang("svg", "SVG (Scalable Vector Graphics)", "svg", &[], Vector, Available),
+    lang("asy", "Asymptote vector graphics", "asy", &[], Vector, Available),
     lang(
         "gif",
         "GIF (Graphics Interchange Format)",
@@ -244,6 +245,7 @@ mod tests {
         assert_eq!(id("x.jpg"), Some("jpeg"));
         assert_eq!(id("x.hpgl"), Some("ibmgl"));
         assert_eq!(id("x.tikz"), Some("tikz"));
+        assert_eq!(id("x.asy"), Some("asy"));
         assert_eq!(id("x.tex"), None);
         assert_eq!(id("noext"), None);
         assert_eq!(id("dir.d/noext"), None);

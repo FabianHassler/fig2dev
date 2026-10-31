@@ -49,6 +49,7 @@ const USAGE: &str =
 
 /// fig2dev's drivers (drivers.h): name, suffix alias.
 const DRIVERS: &[(&str, Option<&str>)] = &[
+    ("asy", None),
     ("box", None),
     ("cgm", None),
     ("dxf", None),
