@@ -308,7 +308,7 @@ fn options_are_handled_in_command_line_order() {
     let o = fig2dev(&["-L", "abcdefghijklmnop"], "");
     assert_eq!(o.status.code(), Some(1));
     assert!(
-        err(&o).starts_with("Unknown graphics language abcdefghijk\nKnown languages are:\nbox cgm "),
+        err(&o).starts_with("Unknown graphics language abcdefghijk\nKnown languages are:\nasy box cgm "),
         "{}",
         err(&o)
     );

@@ -22,7 +22,7 @@ pub const GENERAL: &str = r####"  -h          print this message, fig2dev versio
 
 /// Languages that get the "Vector formats" part.
 pub const VECTOR_LANGS: &[&str] = &[
-    "cgm", "dxf", "eepic", "eepicemu", "emf", "epic", "eps", "gbx", "ibmgl", "latex", "map", "mf", "mp", "pdf",
+    "asy", "cgm", "dxf", "eepic", "eepicemu", "emf", "epic", "eps", "gbx", "ibmgl", "latex", "map", "mf", "mp", "pdf",
     "pdftex", "pdftex_t", "pic", "pict2e", "pictex", "ps", "pstex", "pstex_t", "pstricks", "ptk", "shape", "svg",
     "textyl", "tikz", "tk", "tpic",
 ];
@@ -34,6 +34,20 @@ pub const VECTOR_HEAD: &str = "Vector formats:\n";
 
 /// Sections of the vector part: languages and text.
 pub const VECTOR: &[(&[&str], &str)] = &[
+    (
+        &["asy"],
+        r####"ASY Options:
+  -b width    specify width of blank border around figure (1/72 inch)
+  -F          do not set font family/series/shape
+  -f font     set default text font
+  -i dir      prepend the string "dir" to included graphics files
+  -O          do not quote characters special to TeX/LaTeX
+                (effectively, set the text flag "TeX" for all text)
+  -o          do not set the font size
+  -T          only use TeX fonts (even when PS-fonts are specified)
+  -w          remove suffix from included graphics-files
+"####,
+    ),
     (
         &["cgm"],
         r####"CGM Options:

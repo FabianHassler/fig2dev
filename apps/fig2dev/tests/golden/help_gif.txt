@@ -7,10 +7,10 @@ General Options (all drivers):
   -L language	choose output language (this must be first, if the language
                 cannot be inferrred from the suffix of the output file)
                 Available languages are:
-                    box cgm dxf eepic eepicemu emf epic eps gbx ge gif ibmgl
-                    jpeg latex map mf mp pcx pdf pdftex pdftex_t pic pict2e
-                    pictex png ppm ps pstex pstex_t pstricks ptk shape sld
-                    svg textyl tiff tikz tk tpic xbm xpm
+                    asy box cgm dxf eepic eepicemu emf epic eps gbx ge gif
+                    ibmgl jpeg latex map mf mp pcx pdf pdftex pdftex_t pic
+                    pict2e pictex png ppm ps pstex pstex_t pstricks ptk shape
+                    sld svg textyl tiff tikz tk tpic xbm xpm
   -h          print this message, fig2dev version number and exit
   -V          print fig2dev version number and exit
   -D +/-list  include or exclude depths listed

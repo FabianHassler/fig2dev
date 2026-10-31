@@ -264,6 +264,26 @@ const SHAPE: DriverHelp = d(
     )],
 );
 
+// No C counterpart: modelled on the tikz driver's options.
+const ASY: DriverHelp = DriverHelp {
+    title: "ASY",
+    grid: true,
+    options: &[
+        o('b', "width", "specify width of blank border around figure (1/72 inch)"),
+        o('F', "", "do not set font family/series/shape"),
+        o('f', "font", "set default text font"),
+        o('i', "dir", "prepend the string \"dir\" to included graphics files"),
+        o(
+            'O',
+            "",
+            "do not quote characters special to TeX/LaTeX\n(effectively, set the text flag \"TeX\" for all text)",
+        ),
+        o('o', "", "do not set the font size"),
+        o('T', "", "only use TeX fonts (even when PS-fonts are specified)"),
+        o('w', "", "remove suffix from included graphics-files"),
+    ],
+};
+
 // -f is accepted, but fig2dev's help doesn't list it.
 const TIKZ: DriverHelp = DriverHelp {
     title: "TIKZ",
@@ -407,6 +427,7 @@ pub fn help(lang: &str) -> Option<&'static DriverHelp> {
         "pstex_t" | "pdftex_t" => &PSTEX_T,
         "shape" => &SHAPE,
         "textyl" => &TEXTYL,
+        "asy" => &ASY,
         "tikz" => &TIKZ,
         "tpic" => &TPIC,
         _ => return None,
@@ -436,10 +457,10 @@ mod tests {
     use crate::Ctx;
 
     const LANGS: &[&str] = &[
-        "box", "cgm", "dxf", "eepic", "eepicemu", "emf", "epic", "eps", "gbx", "ge", "gif", "ibmgl", "jpeg", "latex",
-        "map", "mf", "mmp", "mp", "pcx", "pdf", "pdftex", "pdftex_t", "pic", "pict2e", "pictex", "png", "ppm", "ps",
-        "pstex", "pstex_t", "pstricks", "ptk", "shape", "sld", "svg", "textyl", "tiff", "tikz", "tk", "tpic", "xbm",
-        "xpm",
+        "asy", "box", "cgm", "dxf", "eepic", "eepicemu", "emf", "epic", "eps", "gbx", "ge", "gif", "ibmgl", "jpeg",
+        "latex", "map", "mf", "mmp", "mp", "pcx", "pdf", "pdftex", "pdftex_t", "pic", "pict2e", "pictex", "png", "ppm",
+        "ps", "pstex", "pstex_t", "pstricks", "ptk", "shape", "sld", "svg", "textyl", "tiff", "tikz", "tk", "tpic",
+        "xbm", "xpm",
     ];
 
     #[test]

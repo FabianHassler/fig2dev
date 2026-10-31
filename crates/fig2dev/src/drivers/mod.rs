@@ -5,6 +5,7 @@ use crate::Driver;
 
 pub use help::{help, DriverHelp, OptionHelp};
 
+pub mod asy;
 pub mod cgm;
 pub mod dxf;
 pub mod emf;
@@ -44,6 +45,7 @@ pub fn driver(lang: &str) -> Option<Box<dyn Driver>> {
         return scene::new(lang);
     }
     match lang {
+        "asy" => asy::new(lang),
         "cgm" => cgm::new(lang),
         "dxf" => dxf::new(lang),
         "emf" => emf::new(lang),
