@@ -2,20 +2,27 @@
 //! for the `pdftops` step of fig2dev's C code (`readeps.c`).
 //!
 //! Paths, clips, text (as glyph outlines), images and stencil masks stay
-//! vectors or image data. PostScript Level 2 has no transparency, so a page
-//! that uses opacity, soft masks, blend modes, shadings or tiling patterns
-//! is drawn as one image instead (`PdfEps::raster`, the caller says so).
+//! vectors or image data, and so do axial and radial shadings used as the
+//! fill of a path (PostScript Level 3 `shfill`, the EPS then says
+//! `%%LanguageLevel: 3`). PostScript has no transparency, so a page that
+//! uses opacity, soft masks or blend modes, or another kind of shading
+//! (function-based, meshes), a shading with a background or a transfer
+//! function, a shading used as a stroke, or a tiling pattern, is drawn as
+//! one image instead (`PdfEps::raster`, the caller says so).
 //
 // Ported from fig2dev dev/readeps.c (`pdftops`: the command's role) (xfig
 // licence, see LICENSE-xfig).
 
 use super::pdfpic::PdfPicture;
 use hayro::hayro_interpret::font::{Glyph, GlyphRun};
+use hayro::hayro_interpret::pattern::{Pattern, ShadingPattern};
+use hayro::hayro_interpret::shading::{ShadingFunction, ShadingType};
 use hayro::hayro_interpret::{
     interpret_page, BlendMode, ClipPath, Context, Device, DrawMode, DrawProps, FillRule, Image, ImageData,
     ImageDrawProps, InterpreterCache, InterpreterSettings, Paint, SoftMask, TransformExt,
 };
 use hayro::kurbo::{Affine, BezPath, Cap, Join, PathEl, Rect};
+use smallvec::smallvec;
 use std::fmt::Write as _;
 
 /// Largest EPS written for one page, in bytes.
@@ -24,6 +31,8 @@ const MAX_EPS_BYTES: usize = 256 << 20;
 const RASTER_SCALE: f64 = 3.0;
 /// Largest edge of that image, in pixels.
 const RASTER_EDGE: f64 = 4000.0;
+/// Samples of the colour function of a shading (8 bit RGB each).
+const SHADING_SAMPLES: usize = 256;
 
 /// A PDF page converted to EPS.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +62,8 @@ struct PsDevice {
     out: String,
     /// Something the device can't express; the page is drawn as an image.
     unsupported: bool,
+    /// A Level 3 operator (`shfill`) was written.
+    level3: bool,
 }
 
 impl PsDevice {
@@ -174,7 +185,18 @@ impl PsDevice {
     /// Fills and/or strokes `path` (given in the space `transform` maps to
     /// the page's).
     fn paint_path(&mut self, path: &BezPath, transform: Affine, paint: &Paint<'_>, mode: &DrawMode) {
-        if matches!(mode, DrawMode::Invisible) || self.over() || !self.paint(paint) {
+        if matches!(mode, DrawMode::Invisible) || self.over() {
+            return;
+        }
+        if let Paint::Pattern(p) = paint {
+            if let (Pattern::Shading(sp), DrawMode::Fill(rule)) = (&**p, mode) {
+                self.shading_fill(&(transform * path.clone()), *rule, sp);
+            } else {
+                self.unsupported = true;
+            }
+            return;
+        }
+        if !self.paint(paint) {
             return;
         }
         self.out.push_str("gsave\n");
@@ -196,6 +218,62 @@ impl PsDevice {
             DrawMode::Invisible => {}
         }
         self.out.push_str("grestore\n");
+    }
+
+    /// Fills `path` (in page space) with an axial or radial shading: the
+    /// path becomes the clip and `shfill` paints it; the shading's space is
+    /// the pattern's matrix. Anything else sets `unsupported`.
+    fn shading_fill(&mut self, path: &BezPath, rule: FillRule, sp: &ShadingPattern) {
+        let sh = &sp.shading;
+        if sp.opacity < 0.999 || sp.transfer_function.is_some() || sh.background.is_some() {
+            self.unsupported = true;
+            return;
+        }
+        let ShadingType::RadialAxial {
+            coords,
+            domain,
+            function,
+            extend,
+            axial,
+        } = &*sh.shading_type
+        else {
+            // a dummy shading paints nothing; the others are not supported
+            self.unsupported = !matches!(&*sh.shading_type, ShadingType::Dummy);
+            return;
+        };
+        let Some(data) = sample_function(function, sh, *domain) else {
+            self.unsupported = true;
+            return;
+        };
+        let c = coords.map(|v| num(v.into()));
+        let (kind, coords) = if *axial {
+            (2, format!("{} {} {} {}", c[0], c[1], c[2], c[3]))
+        } else {
+            (3, c.join(" "))
+        };
+        self.level3 = true;
+        self.out.push_str("gsave\n");
+        self.path(path);
+        self.out.push_str(if rule == FillRule::EvenOdd {
+            "eoclip\n"
+        } else {
+            "clip\n"
+        });
+        self.out.push_str("newpath\n");
+        self.matrix(sp.matrix);
+        if let Some(clip) = &sh.clip_path {
+            self.path(clip);
+            self.out.push_str("clip\nnewpath\n");
+        }
+        let _ = writeln!(
+            self.out,
+            "<< /ShadingType {kind} /ColorSpace /DeviceRGB /Coords [{coords}] /Domain [0 1] \
+             /Extend [{} {}]\n/Function << /FunctionType 0 /Domain [0 1] /Range [0 1 0 1 0 1] \
+             /Size [{SHADING_SAMPLES}] /BitsPerSample 8 /DataSource <",
+            extend[0], extend[1]
+        );
+        self.hex(data.into_iter());
+        self.out.push_str("> >> >> shfill\ngrestore\n");
     }
 
     fn hex(&mut self, data: impl Iterator<Item = u8>) {
@@ -231,6 +309,27 @@ impl PsDevice {
         self.hex(data.iter().copied());
         self.out.push_str("grestore\n");
     }
+}
+
+/// The colour function of a shading as 8 bit RGB samples over its domain
+/// (the function's own, scaled to 0..1); `None` when it can't be
+/// evaluated or has transparency.
+fn sample_function(
+    function: &ShadingFunction,
+    sh: &hayro::hayro_interpret::shading::Shading,
+    domain: [f32; 2],
+) -> Option<Vec<u8>> {
+    let mut data = Vec::with_capacity(SHADING_SAMPLES * 3);
+    for i in 0..SHADING_SAMPLES {
+        let t = domain[0] + (domain[1] - domain[0]) * (i as f32 / (SHADING_SAMPLES - 1) as f32);
+        let out = function.eval(&smallvec![t])?;
+        let [r, g, b, a] = sh.color_space.to_rgba(&out, 1.0).components();
+        if !(a.is_finite() && r.is_finite() && g.is_finite() && b.is_finite()) || a < 0.999 {
+            return None;
+        }
+        data.extend([r, g, b].map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8));
+    }
+    Some(data)
 }
 
 impl<'a> Device<'a> for PsDevice {
@@ -369,10 +468,13 @@ impl<'a> Device<'a> for PsDevice {
 pub(crate) fn to_eps(p: &PdfPicture) -> Option<PdfEps> {
     let (w, h) = p.size();
     let (bw, bh) = (w.ceil() as i32, h.ceil() as i32);
-    let head = format!(
-        "%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 {bw} {bh}\n%%Creator: {}, from a PDF page\n%%EndComments\n",
-        crate::scene::CREATOR
-    );
+    let head = |level3: bool| {
+        format!(
+            "%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 {bw} {bh}\n%%Creator: {}, from a PDF page\n{}%%EndComments\n",
+            crate::scene::CREATOR,
+            if level3 { "%%LanguageLevel: 3\n" } else { "" }
+        )
+    };
     let device = p.with_pdf(|pdf| {
         let page = pdf.pages().first()?;
         let cache = InterpreterCache::new();
@@ -387,18 +489,19 @@ pub(crate) fn to_eps(p: &PdfPicture) -> Option<PdfEps> {
         let mut dev = PsDevice {
             out: String::new(),
             unsupported: false,
+            level3: false,
         };
         interpret_page(page, &mut ctx, &mut dev);
-        (!dev.over() || dev.unsupported).then_some((dev.out, dev.unsupported))
+        (!dev.over() || dev.unsupported).then_some((dev.out, dev.unsupported, dev.level3))
     });
     match device {
-        Some((body, false)) => Some(PdfEps {
-            ps: format!("{head}{body}%%EOF\n"),
+        Some((body, false, level3)) => Some(PdfEps {
+            ps: format!("{}{body}%%EOF\n", head(level3)),
             width: bw,
             height: bh,
             raster: false,
         }),
-        _ => raster_eps(p, &head, bw, bh),
+        _ => raster_eps(p, &head(false), bw, bh),
     }
 }
 
@@ -410,6 +513,7 @@ fn raster_eps(p: &PdfPicture, head: &str, bw: i32, bh: i32) -> Option<PdfEps> {
     let mut dev = PsDevice {
         out: String::new(),
         unsupported: false,
+        level3: false,
     };
     let rgb = img.rgba.as_chunks::<4>().0.iter().flat_map(|px| {
         let a = u16::from(px[3]);
