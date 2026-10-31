@@ -505,7 +505,7 @@ fn text(c: &mut Ctx, t: &TextPrim) {
     let (x, y) = c.p(t.origin);
     let (s, co) = t.angle.sin_cos();
     c.fill_rgb(t.color);
-    let shaped = super::textcache::shaped(t);
+    let shaped = (idx >= 12).then(|| super::textcache::shaped(t));
     for (i, line) in t.text.split('\n').enumerate() {
         // Characters beyond WinAnsi: the line is set in Type 3 fonts.
         let t3_line: Option<Vec<(usize, u8)>> = if idx < 12 && line.chars().any(|ch| win_ansi_byte(ch).is_none()) {
@@ -513,7 +513,9 @@ fn text(c: &mut Ctx, t: &TextPrim) {
         } else {
             None
         };
-        // Line widths come from RustFig's own font metrics.
+        // Type 3 lines use the glyph advances; WinAnsi lines in the standard
+        // fonts the Adobe AFM widths, which is what the viewer draws them
+        // with; Symbol and ZapfDingbats RustFig's own font metrics.
         let w = match &t3_line {
             Some(codes) => {
                 codes
@@ -527,7 +529,14 @@ fn text(c: &mut Ctx, t: &TextPrim) {
                     / 1000.0
                     * size
             }
-            None => shaped.line_widths.get(i).copied().unwrap_or(0.0) * c.k,
+            None if idx < 12 => f64::from(super::afm::string_width(idx, &win_ansi(line))) / 1000.0 * size,
+            None => {
+                shaped
+                    .as_ref()
+                    .and_then(|sh| sh.line_widths.get(i).copied())
+                    .unwrap_or(0.0)
+                    * c.k
+            }
         };
         let dx = match t.justify {
             Justify::Left => 0.0,
@@ -1123,6 +1132,70 @@ mod tests {
         assert!(text.contains("/MediaBox [0 0 120 60]"), "{text}");
         assert!(text.contains("/Type /Metadata"));
         assert!(text.contains("<dc:title><rdf:Alt><rdf:li xml:lang='x-default'>A&amp;B</rdf:li>"));
+    }
+
+    /// The x of the `Tm` operator of each text line in a PDF.
+    fn tm_x(pdf: &[u8]) -> Vec<f64> {
+        let text = String::from_utf8_lossy(pdf);
+        text.lines()
+            .filter_map(|l| {
+                let n: Vec<&str> = l.strip_suffix(" Tm")?.split(' ').collect();
+                n.get(4)?.parse().ok()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn centred_and_right_text_uses_the_standard_font_widths() {
+        let line = "Wave iiii MMMM, fi.";
+        let bounds = Rect::new(Point::ZERO, Point::new(12000.0, 3000.0));
+        let size = 24.0;
+        let x_of = |font: i32, justify: Justify| {
+            let t = TextPrim {
+                origin: Point::new(6000.0, 1500.0),
+                angle: 0.0,
+                size,
+                justify,
+                font,
+                postscript: true,
+                text: line.to_string(),
+                color: Rgba {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
+                special: false,
+                local_font: None,
+            };
+            let idx = base14_index(&t);
+            let pdf = to_pdf(
+                &Scene {
+                    prims: vec![Prim::Text(t)],
+                },
+                &bounds,
+                1.0,
+                None,
+                None,
+            );
+            let xs = tm_x(&pdf);
+            (idx, xs.first().copied().unwrap_or(f64::NAN))
+        };
+        let mut seen = std::collections::BTreeSet::new();
+        for font in [0, 1, 2, 3, 12, 13, 14, 15, 16, 17, 18, 19] {
+            let (idx, left) = x_of(font, Justify::Left);
+            seen.insert(idx);
+            let w = f64::from(super::super::afm::string_width(idx, &win_ansi(line))) / 1000.0 * size;
+            for (j, shift) in [(Justify::Center, w / 2.0), (Justify::Right, w)] {
+                let (_, x) = x_of(font, j);
+                assert!(
+                    (left - x - shift).abs() < 0.01 * w,
+                    "font {font} {j:?}: moved {} of {shift}",
+                    left - x
+                );
+            }
+        }
+        assert_eq!(seen.len(), 12);
     }
 
     #[test]

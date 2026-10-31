@@ -12,6 +12,7 @@
 // Ported from fig2dev dev/genps.c (`PSFONTMAG` text sizes, `genps_grid` in grid.rs, arrows on pie
 // arcs) and colors.c (`rgb2luminance`) (xfig licence, see LICENSE-xfig).
 
+mod afm;
 pub mod bitmaps;
 pub mod build;
 pub mod eps;
