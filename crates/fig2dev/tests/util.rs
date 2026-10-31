@@ -134,7 +134,8 @@ fn missing_and_junk_pictures_are_errors() {
     assert!(read_pic(&mut ctx.clone(), &s, &mut pic).is_err());
 
     std::fs::write(dir.join("x.bz2"), b"BZh").unwrap();
-    assert!(open_stream(&ctx, "x").unwrap_err().contains("bzip2"));
+    // not bzip2 data: the external program (or wasm) refuses it
+    assert!(open_stream(&ctx, "x").is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -180,4 +181,39 @@ fn sources_dir() -> std::path::PathBuf {
     std::env::var_os("FIG2DEV_SOURCES")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../old"))
+}
+
+/// `.bz2` (and `.zip`, `.xz`) pictures go through the external program as
+/// C's `open_stream` pipes them; skipped without `bunzip2`.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn bzip2_pictures_use_the_external_program() {
+    let have = std::process::Command::new("bunzip2")
+        .arg("--help")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok();
+    if !have {
+        eprintln!("skipped: no bunzip2");
+        return;
+    }
+    // bzip2 of "P3 1 1 255 1 2 3"
+    const BZ: [u8; 47] = [
+        66, 90, 104, 57, 49, 65, 89, 38, 83, 89, 75, 15, 254, 228, 0, 0, 7, 154, 0, 64, 0, 58, 0, 64, 0, 32, 0, 34, 52,
+        121, 32, 192, 4, 139, 50, 234, 95, 23, 114, 69, 56, 80, 144, 75, 15, 254, 228,
+    ];
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("bz2pic");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("t.ppm.bz2"), BZ).unwrap();
+    let ctx = Ctx {
+        dir: Some(dir),
+        ..Ctx::default()
+    };
+    let s = open_stream(&ctx, "t.ppm").unwrap();
+    assert_eq!(s.compression, Compression::Bzip2);
+    assert_eq!(s.data, b"P3 1 1 255 1 2 3");
+    // a file that is not bzip2 data fails, as the shell command would
+    std::fs::write(ctx.dir.as_ref().unwrap().join("bad.ppm.bz2"), b"junk").unwrap();
+    assert!(open_stream(&ctx, "bad.ppm").is_err());
 }

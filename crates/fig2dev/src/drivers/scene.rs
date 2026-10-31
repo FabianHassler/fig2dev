@@ -65,6 +65,7 @@ pub fn new(lang: &str) -> Option<Box<dyn Driver>> {
         options: None,
         builder: None,
         comments: Vec::new(),
+        comments_raw: Vec::new(),
         // genps: `ps` makes pages; `eps` and `pdf` start as EPS (`-P` or
         // `-z` make a PDF's pages).
         epsflag: lang != "ps",
@@ -118,6 +119,8 @@ pub struct SceneDriver {
     builder: Option<Builder>,
     /// The whole-figure comments (the LaTeX box writes them).
     comments: Vec<String>,
+    /// The same, as read (the box copies the bytes).
+    comments_raw: Vec<Vec<u8>>,
     /// genps' `epsflag`: the page options are ignored while it is set.
     epsflag: bool,
     xoff: i32,
@@ -373,6 +376,7 @@ impl Driver for SceneDriver {
         self.builder = Some(Builder::new(ctx, text));
         self.options = Some(o);
         self.comments = objects.comments.iter().map(|c| c.text.clone()).collect();
+        self.comments_raw = objects.comments.iter().map(|c| c.raw.clone()).collect();
         Ok(())
     }
 
@@ -549,7 +553,7 @@ impl Driver for SceneDriver {
                     comments: &self.comments,
                 },
                 embedded_eps: &b.embedded_eps,
-                comments: &self.comments,
+                comments: &self.comments_raw,
                 // genbitmaps: ghostscript at 80 dpi times the magnification.
                 dpi: 80.0,
                 smoothing: o.smoothing,
