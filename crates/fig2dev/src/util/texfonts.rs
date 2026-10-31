@@ -18,7 +18,7 @@ use std::borrow::Cow;
 use crate::gendev::Ctx;
 use crate::object::{Text, MAX_FONT, MAX_PSFONT};
 use crate::util::psfonts::unpsfont_clear;
-use crate::util::textconvert::{conv_textisutf8, conv_textstring, convertutf8tolatin1};
+use crate::util::textconvert::{conv_textstring, convertutf8tolatin1};
 use crate::{fprintf, round, round_mul, Out};
 
 /// Font sizes above this are used as they are (`MAXFONTSIZE`).
@@ -283,23 +283,23 @@ fn is_symbol_font(font: i32) -> bool {
 }
 
 /// `put_string`: writes a text, given as the bytes C holds (`Text::raw`).
-/// In Symbol and Zapf Dingbats a conversion that is needed (an input
-/// encoding other than the locale's) first turns it "from UTF-8 to
-/// Latin-1" (`convertutf8tolatin1`, which on Latin-1 input drops the
-/// non-ASCII bytes); then every byte beyond ASCII is `\charNNN`: in a UTF-8
-/// file, one per UTF-8 byte. Other fonts get the bytes as they are, or
-/// converted to UTF-8 where the input encoding differs from the locale's.
-/// Unless `tex_text` (a special text, which is TeX code), LaTeX's special
-/// characters are quoted.
+/// In Symbol and Zapf Dingbats the text is first read in its input encoding;
+/// when that gives UTF-8 (a UTF-8 file, or a text RustFig built), each
+/// character below 256 is one font code and the others are left out, so
+/// `å` is one code (∑), as in the SVG driver; other bytes (a Latin-1 file)
+/// are the codes. Every code beyond ASCII is then `\charNNN`. C wrote one
+/// `\charNNN` per UTF-8 byte, and, when a conversion was needed, took
+/// Latin-1 text for UTF-8 and dropped its codes. Other fonts get the bytes
+/// as they are, or converted to UTF-8 where the input encoding differs from
+/// the locale's. Unless `tex_text` (a special text, which is TeX code),
+/// LaTeX's special characters are quoted.
 pub fn put_string(out: &mut Out, ctx: &mut Ctx, raw: &[u8], font: i32, tex_text: bool) {
     if is_symbol_font(font) {
-        let bytes: Cow<[u8]> = match conv_textisutf8(ctx, raw) {
-            Some(at) => {
-                let mut v = raw.get(..at).unwrap_or_default().to_vec();
-                v.extend(convertutf8tolatin1(raw.get(at..).unwrap_or_default()));
-                Cow::Owned(v)
-            }
-            None => Cow::Borrowed(raw),
+        let text = conv_textstring(ctx, raw);
+        let bytes: Cow<[u8]> = if std::str::from_utf8(&text).is_ok() {
+            Cow::Owned(convertutf8tolatin1(&text))
+        } else {
+            Cow::Borrowed(raw)
         };
         if tex_text {
             put_characters(out, &bytes);
@@ -424,10 +424,21 @@ mod tests {
     }
 
     #[test]
-    fn symbol_font_latin1() {
-        // In a UTF-8 file fig2dev writes one \\charNNN per UTF-8 byte.
-        assert_eq!(put("a±b", 32, false), "a\\char194\\char177b");
-        assert_eq!(put("±1", 34, true), "\\char194\\char177 1");
+    fn symbol_font_codes() {
+        // One \\charNNN per character, not per UTF-8 byte (fig2dev 3.2.9a).
+        assert_eq!(put("a±b", 32, false), "a\\char177b");
+        assert_eq!(put("±1", 34, true), "\\char177 1");
+        // A Latin-1 file: the bytes are the codes, also when converted.
+        let mut out = Out::new();
+        put_string(&mut out, &mut Ctx::default(), b"a\xe5", 32, false);
+        assert_eq!(out.buf, b"a\\char229");
+        let mut ctx = Ctx {
+            input_encoding: Some("ISO-8859-1".into()),
+            ..Ctx::default()
+        };
+        let mut out = Out::new();
+        put_string(&mut out, &mut ctx, b"a\xe5", 32, false);
+        assert_eq!(out.buf, b"a\\char229");
     }
 
     #[test]

@@ -6,10 +6,10 @@
 //! chosen from the join and cap styles; arcs and circles become circular
 //! interpolations; ellipses, splines, texts and arrowheads are not written
 //! (a warning says so, once). Like fig2dev, the driver writes absolute
-//! coordinates in the figure's own orientation and keeps its quirks: the
-//! `%SF…%` parameter lacks its `*`, circular aperture definitions end in
-//! `%*`, and an exposure-off code at the end of an object waits on the
-//! line for the next block.
+//! coordinates in the figure's own orientation. Unlike gengbx.c, the
+//! parameters `%SF…*%` and `%ADD…C,…*%` end in `*%` (C wrote `%` and `%*`),
+//! and the exposure-off code that ends a filled polygon or an arc is a
+//! block of its own (C left it on the line of the next block).
 // Ported from fig2dev dev/gengbx.c (xfig licence, see LICENSE-xfig).
 
 use crate::fprintf;
@@ -349,10 +349,11 @@ impl Gbx {
     }
 
     fn flash_xy(&mut self, ctx: &Ctx, out: &mut Out, p: Point, aperture: i64) {
+        // C ended an empty block here when the exposure was already off.
         if self.is_exposure {
             self.exposure_off(out);
+            Self::write_end_block(out);
         }
-        Self::write_end_block(out);
         Self::write_g_code(out, G_TOOL_PREPARE);
         Self::write_d_code(out, D_SELECT_APERTURE.saturating_add(aperture));
         Self::write_end_block(out);
@@ -388,7 +389,7 @@ impl Gbx {
         }
         self.check_aperture_count()?;
         let index = self.count_apertures;
-        fprintf!(out, "%ADD{}C,{dia:.6}%*\n", D_SELECT_APERTURE + index);
+        fprintf!(out, "%ADD{}C,{dia:.6}*%\n", D_SELECT_APERTURE + index);
         if let Some(slot) = self.circ_list.get_mut(index as usize) {
             *slot = dia;
         }
@@ -636,6 +637,7 @@ impl Gbx {
             Self::write_g_code(out, G_POLY_AREA_FILL_OFF);
             Self::write_end_block(out);
             self.exposure_off(out);
+            Self::write_end_block(out);
             if p1 != p2 {
                 self.warn_once(
                     ctx,
@@ -714,6 +716,7 @@ impl Gbx {
         Self::write_g_code(out, G_LINE_INTERP_1X);
         Self::write_end_block(out);
         self.exposure_off(out);
+        Self::write_end_block(out);
 
         if a.thickness > 0 && filled {
             self.write_trace(out, "## START:ARC:OUTLINE:CURVE");
@@ -843,7 +846,7 @@ impl Driver for Gbx {
         fprintf!(out, "%FSLAX{0}{1}Y{0}{1}*%\n", self.before, self.after);
         fprintf!(
             out,
-            "%SFA{:.6}B{:.6}%\n",
+            "%SFA{:.6}B{:.6}*%\n",
             f64::from(self.scale_a),
             f64::from(self.scale_b)
         );

@@ -284,9 +284,10 @@ impl Mp {
         }
     }
 
-    /// The ends of a spline for its arrowheads (the C code is marked
-    /// "UNTESTED", and the forward arrow of an approximated spline points
-    /// along its penultimate segment; kept as in fig2dev).
+    /// The ends of a spline for its arrowheads. An approximated spline ends
+    /// at its end points, along the first and last segments; genmp.c (marked
+    /// "UNTESTED") stops its loop one point early and puts the forward
+    /// arrowhead on the last point but one.
     fn spline_ends(s: &Spline) -> ((Point, Point), (Point, Point)) {
         let pts = &s.points;
         let first = pts.first().copied().unwrap_or_default();
@@ -302,20 +303,12 @@ impl Mp {
                 (Point::new(round(c0.rx), round(c0.ry)), first),
             )
         } else {
-            let (mut x2, mut y2) = (f64::from(first.x), f64::from(first.y));
-            let (mut c, mut d) = (f64::from(second.x), f64::from(second.y));
-            for p in pts.iter().take(n.saturating_sub(1)).skip(1) {
-                x2 = c;
-                y2 = d;
-                c = f64::from(p.x);
-                d = f64::from(p.y);
-            }
+            let before = pts.get(n.saturating_sub(2)).copied().unwrap_or(last);
+            let fx = round((f64::from(before.x) + f64::from(last.x)) / 2.0);
+            let fy = round((f64::from(before.y) + f64::from(last.y)) / 2.0);
             let bx = round((f64::from(first.x) + f64::from(second.x)) / 2.0);
             let by = round((f64::from(first.y) + f64::from(second.y)) / 2.0);
-            (
-                (Point::new(round(x2), round(y2)), Point::new(round(c), round(d))),
-                (Point::new(bx, by), first),
-            )
+            ((Point::new(fx, fy), last), (Point::new(bx, by), first))
         }
     }
 
@@ -972,5 +965,24 @@ impl Driver for Mp {
 
     fn text_include(&self) -> bool {
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn approximated_spline_arrows_sit_on_the_end_points() {
+        let p = Point::new;
+        let s = Spline {
+            type_: 0,
+            points: vec![p(0, 0), p(600, 0), p(600, 600), p(1200, 600)],
+            ..Spline::default()
+        };
+        let (fwd, back) = Mp::spline_ends(&s);
+        // genmp.c gave ((600, 0), (600, 600)): the last point but one.
+        assert_eq!(fwd, (p(900, 600), p(1200, 600)));
+        assert_eq!(back, (p(300, 0), p(0, 0)));
     }
 }

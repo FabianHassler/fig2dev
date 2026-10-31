@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-//! fig2dev's `gbx` driver against output of the real fig2dev 3.2.9a.
+//! fig2dev's `gbx` driver against output of the real fig2dev 3.2.9a, with
+//! its block terminators corrected (`%SF…*%`, `%ADD…C,…*%`, `D02*`).
 
 use fig2dev::{convert, drivers, read::readfp_fig, Ctx};
 
@@ -48,7 +49,7 @@ G04 Author: Edward Grace <edward.grace@gmail.com>*
 %MOMM*%
 %OFA0.000000B0.000000*%
 %FSLAX35Y35*%
-%SFA1.000000B1.000000%
+%SFA1.000000B1.000000*%
 %IPNEG*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*
@@ -85,7 +86,7 @@ G04 Author: Edward Grace <edward.grace@gmail.com>*
 %MOMM*%
 %OFA0.000000B0.000000*%
 %FSLAX35Y35*%
-%SFA1.000000B1.000000%
+%SFA1.000000B1.000000*%
 %IPNEG*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*
@@ -94,7 +95,7 @@ G04 The following is an aperture definition of width pi/10. It should never be u
 G54D11*
 X31750Y0D02*
 X1238250Y0D01*
-%ADD12C,0.635000%*
+%ADD12C,0.635000*%
 D02*
 G54D12*
 X1270000Y0D03*
@@ -129,7 +130,7 @@ G04 Author: Edward Grace <edward.grace@gmail.com>*
 %MOMM*%
 %OFA0.000000B0.000000*%
 %FSLAX35Y35*%
-%SFA1.000000B1.000000%
+%SFA1.000000B1.000000*%
 %IPNEG*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*
@@ -138,7 +139,7 @@ G04 The following is an aperture definition of width pi/10. It should never be u
 G54D11*
 X0Y0D02*
 X1238250Y0D01*
-%ADD12C,0.635000%*
+%ADD12C,0.635000*%
 G54D12*
 X1238250Y0D02*
 X1270000Y0D01*
@@ -178,7 +179,7 @@ G04 Author: Edward Grace <edward.grace@gmail.com>*
 %MOMM*%
 %OFA0.000000B0.000000*%
 %FSLAX35Y35*%
-%SFA1.000000B1.000000%
+%SFA1.000000B1.000000*%
 %IPNEG*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*
@@ -187,7 +188,7 @@ G04 The following is an aperture definition of width pi/10. It should never be u
 G54D11*
 X46566Y0D02*
 X1223433Y0D01*
-%ADD12C,0.952500%*
+%ADD12C,0.952500*%
 G54D12*
 X1223433Y0D02*
 X1270000Y0D01*
@@ -228,12 +229,12 @@ G04 Author: Edward Grace <edward.grace@gmail.com>*
 %MOMM*%
 %OFA0.000000B0.000000*%
 %FSLAX35Y35*%
-%SFA1.000000B1.000000%
+%SFA1.000000B1.000000*%
 %IPNEG*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*
 %ADD10R,0.314159X0.314159*%
-%ADD11C,0.635000%*
+%ADD11C,0.635000*%
 G54D11*
 X0Y0D02*
 X1270000Y0D01*
@@ -267,7 +268,7 @@ G04 Author: Edward Grace <edward.grace@gmail.com>*
 %MOMM*%
 %OFA0.000000B0.000000*%
 %FSLAX35Y35*%
-%SFA1.000000B1.000000%
+%SFA1.000000B1.000000*%
 %IPNEG*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*
@@ -276,7 +277,7 @@ G04 The following is an aperture definition of width pi/10. It should never be u
 G54D11*
 X0Y0D02*
 X1270000Y0D01*
-%ADD12C,0.635000%*
+%ADD12C,0.635000*%
 G54D12*
 X1270000Y0D02*
 X1270000Y1270000D01*
@@ -313,7 +314,7 @@ G04 Author: Edward Grace <edward.grace@gmail.com>*
 %MOMM*%
 %OFA0.000000B0.000000*%
 %FSLAX35Y35*%
-%SFA1.000000B1.000000%
+%SFA1.000000B1.000000*%
 %IPNEG*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*
@@ -330,7 +331,8 @@ X1270000Y0D01*
 X1270000Y1270000*
 X0Y0*
 G37*
-D02M02*
+D02*
+M02*
 "#
     );
     let expected: Vec<&str> = vec![
@@ -361,7 +363,7 @@ G04 Author: Edward Grace <edward.grace@gmail.com>*
 %MOMM*%
 %OFA0.000000B0.000000*%
 %FSLAX35Y35*%
-%SFA1.000000B1.000000%
+%SFA1.000000B1.000000*%
 %IPNEG*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*
@@ -370,7 +372,7 @@ G04 The following is an aperture definition of width pi/10. It should never be u
 G54D11*
 X31750Y0D02*
 X1238250Y0D01*
-%ADD12C,0.635000%*
+%ADD12C,0.635000*%
 G54D12*
 X1238250Y0D02*
 X1270000Y0D01*
@@ -392,7 +394,8 @@ X0Y1905000*
 X23283Y1928283*
 X188383Y2093383*
 G37*
-D02M02*
+D02*
+M02*
 "#
     );
     let expected: Vec<&str> = vec![
@@ -423,7 +426,7 @@ G04 Author: Edward Grace <edward.grace@gmail.com>*
 %MOMM*%
 %OFA0.000000B0.000000*%
 %FSLAX35Y35*%
-%SFA1.000000B1.000000%
+%SFA1.000000B1.000000*%
 %IPNEG*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*
@@ -432,7 +435,7 @@ G04 The following is an aperture definition of width pi/10. It should never be u
 G54D11*
 X0Y0D02*
 X0Y1270000D01*
-%ADD12C,0.317500%*
+%ADD12C,0.317500*%
 G54D12*
 X0Y1270000D02*
 X1270000Y1270000D01*
@@ -465,12 +468,12 @@ G04 Author: Edward Grace <edward.grace@gmail.com>*
 %MOMM*%
 %OFA0.000000B0.000000*%
 %FSLAX35Y35*%
-%SFA1.000000B1.000000%
+%SFA1.000000B1.000000*%
 %IPNEG*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*
 %ADD10R,0.314159X0.314159*%
-%ADD11C,0.635000%*
+%ADD11C,0.635000*%
 D02*
 G54D11*
 X635000Y635000D03*
@@ -505,7 +508,7 @@ G04 Author: Edward Grace <edward.grace@gmail.com>*
 %MOMM*%
 %OFA0.000000B0.000000*%
 %FSLAX35Y35*%
-%SFA1.000000B1.000000%
+%SFA1.000000B1.000000*%
 %IPNEG*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*
@@ -518,7 +521,8 @@ G02*
 X1905000Y1270000I635000J0D01*
 G74*
 G01*
-D02M02*
+D02*
+M02*
 "#
     );
     let expected: Vec<&str> = vec![
@@ -550,12 +554,12 @@ G04 Author: Edward Grace <edward.grace@gmail.com>*
 %MOMM*%
 %OFA0.000000B0.000000*%
 %FSLAX35Y35*%
-%SFA1.000000B1.000000%
+%SFA1.000000B1.000000*%
 %IPNEG*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*
 %ADD10R,0.314159X0.314159*%
-%ADD11C,0.635000%*
+%ADD11C,0.635000*%
 G54D11*
 X635000Y1270000D02*
 G75*
@@ -563,7 +567,8 @@ G03*
 X1905000Y1270000I635000J0D01*
 G74*
 G01*
-D02X635000Y1270000D02*
+D02*
+X635000Y1270000D02*
 G75*
 G36*
 G02*
@@ -571,7 +576,8 @@ X1905000Y1270000I635000J0D01*
 G37*
 G74*
 G01*
-D02%ADD12R,0.635000X0.635000*%
+D02*
+%ADD12R,0.635000X0.635000*%
 G54D12*
 X635000Y1270000D02*
 G75*
@@ -579,7 +585,8 @@ G02*
 X1905000Y1270000I635000J0D01*
 G74*
 G01*
-D02X635000Y1270000D02*
+D02*
+X635000Y1270000D02*
 X1905000Y1270000D01*
 X635000Y1270000D02*
 G75*
@@ -589,7 +596,8 @@ X1905000Y1270000I635000J0D01*
 G37*
 G74*
 G01*
-D02M02*
+D02*
+M02*
 "#
     );
     let expected: Vec<&str> =
@@ -620,7 +628,7 @@ G04 Author: Edward Grace <edward.grace@gmail.com>*
 %MOMM*%
 %OFA0.000000B0.000000*%
 %FSLAX35Y35*%
-%SFA1.000000B1.000000%
+%SFA1.000000B1.000000*%
 %IPNEG*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*
@@ -633,7 +641,8 @@ G03*
 X2988733Y2988733I-448733J-448733D01*
 G74*
 G01*
-D02X5528733Y2988733D02*
+D02*
+X5528733Y2988733D02*
 G75*
 G36*
 G03*
@@ -641,7 +650,8 @@ X5528733Y2988733I-448733J-448733D01*
 G37*
 G74*
 G01*
-D02%ADD12R,0.635000X0.635000*%
+D02*
+%ADD12R,0.635000X0.635000*%
 G54D12*
 X5528733Y2988733D02*
 G75*
@@ -649,7 +659,8 @@ G03*
 X5528733Y2988733I-448733J-448733D01*
 G74*
 G01*
-D02X5528733Y2988733D02*
+D02*
+X5528733Y2988733D02*
 X5528733Y2988733D01*
 M02*
 "#
@@ -685,7 +696,7 @@ G04 a figure comment*
 %MOMM*%
 %OFA0.000000B0.000000*%
 %FSLAX35Y35*%
-%SFA1.000000B1.000000%
+%SFA1.000000B1.000000*%
 %IPNEG*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*
@@ -728,7 +739,7 @@ G04 Author: Edward Grace <edward.grace@gmail.com>*
 %MOIN*%
 %OFA0.500000B0.000000*%
 %FSLAX24Y24*%
-%SFA1.000000B-1.000000%
+%SFA1.000000B-1.000000*%
 %IPPOS*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*
@@ -738,7 +749,7 @@ G04 ## START:POLYGON:OPEN*
 G54D11*
 X125Y0D02*
 X4875Y0D01*
-%ADD12C,0.025000%*
+%ADD12C,0.025000*%
 D02*
 G54D12*
 X5000Y0D03*
@@ -780,7 +791,7 @@ G04 Author: Edward Grace <edward.grace@gmail.com>*
 %MOMM*%
 %OFA0.000000B0.000000*%
 %FSLAX42949672957Y42949672957*%
-%SFA1.000000B1.000000%
+%SFA1.000000B1.000000*%
 %IPNEG*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*
@@ -824,7 +835,7 @@ G04 Author: Edward Grace <edward.grace@gmail.com>*
 %MOMM*%
 %OFA0.000000B0.000000*%
 %FSLAX35Y35*%
-%SFA1.000000B1.000000%
+%SFA1.000000B1.000000*%
 %IPNEG*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*
@@ -838,7 +849,8 @@ X1905000Y1270000I635000J0D01*
 G37*
 G74*
 G01*
-D02G04 ## START:ARC:OUTLINE:CURVE*
+D02*
+G04 ## START:ARC:OUTLINE:CURVE*
 G04 ## START:ARC:OPEN*
 %ADD11R,0.635000X0.635000*%
 G54D11*
@@ -848,7 +860,8 @@ G02*
 X1905000Y1270000I635000J0D01*
 G74*
 G01*
-D02G04 ## END:ARC:OPEN*
+D02*
+G04 ## END:ARC:OPEN*
 G04 ## START:ARC:OUTLINE:LINE*
 X635000Y1270000D02*
 X1905000Y1270000D01*
@@ -886,7 +899,7 @@ G04 Author: Edward Grace <edward.grace@gmail.com>*
 %MOMM*%
 %OFA0.000000B0.000000*%
 %FSLAX35Y35*%
-%SFA1.000000B1.000000%
+%SFA1.000000B1.000000*%
 %IPNEG*%
 %LPD*%
 G04 The following is an aperture definition of width pi/10. It should never be used.*

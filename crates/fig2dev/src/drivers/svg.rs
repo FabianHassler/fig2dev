@@ -148,8 +148,9 @@ enum ArrowMode {
 }
 
 /// The arrowheads of one object: the points `svg_arrows` computes when it is
-/// initialised and keeps (C: function statics, so an object with one arrow
-/// sees the other's leftovers from the previous object).
+/// initialised and keeps until the object is drawn. C keeps them in
+/// function statics, so an object with one arrow clipped its line with the
+/// previous object's other arrowhead; here each object starts empty.
 #[derive(Default)]
 struct ArrowState {
     fwd: ArrowPoints,
@@ -544,6 +545,7 @@ impl SvgDriver {
         let (for_arrow, back_arrow) = arrows;
         match mode {
             ArrowMode::Init => {
+                self.arrows = ArrowState::default();
                 if let Some(a) = for_arrow {
                     self.arrows.fwd = calc_arrow(
                         ctx,
