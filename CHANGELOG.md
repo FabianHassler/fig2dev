@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Hardening (B11), checked against fig2dev 3.2.9a built from source: `-L box` writes the whole-figure comments as `print_comments("% ", ...)` does (`%  text ` with the comment's bytes as read; was `% text`): 0 differences on the 2,554 sample figures (1,041 before). Pictures compressed as `.zip`, `.bz2`, `.bz` or `.xz` are read through `unzip -p`, `bunzip2 -c` and `unxz -c` as `open_stream` does (run directly, no shell; not on wasm). `-E ascii` (and `us-ascii`, `ANSI_X3.4-1968`, ...) converts strictly as iconv: text stops at the first byte beyond 0x7f with "Error converting string ...: Illegal byte sequence"; that message and the "Unable to convert" one show the text's bytes as they are (also non-UTF-8 bytes); a charset name with blanks is refused as iconv does. Left: netpbm's palette order for PPM, TIFF, XPM and GIF pictures (first use here), `-E utf-16` and the multibyte charsets' error positions.
+- Fill patterns (41-62) in smoothed bitmaps (`-S 2`, `-S 4`): the pattern lines are drawn hard-edged at the bitmap's own resolution and enlarged, as ghostscript draws them (it ignores `GraphicsAlphaBits` inside a pattern cell), so inside a shape the pixels equal the unsmoothed bitmap's; only the shape's edge is smoothed. On a 22-pattern sheet against fig2dev (C, with gs) the share of pixels differing by more than a third of the range falls from 29.5% to 26.6% (`-S 2`) and from 26.1% to 25.2% (`-S 4`), unsmoothed 23.6%. New public field `RasterOptions::pattern_k` (1 for no supersampling).
 
 ## 0.9.3 — 2026-10-28
 

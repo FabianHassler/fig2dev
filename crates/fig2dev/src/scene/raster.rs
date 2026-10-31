@@ -45,6 +45,11 @@ pub struct RasterOptions {
     pub adjust_px: f64,
     /// Where fill patterns are anchored and how large their tiles are.
     pub pattern: PatternFrame,
+    /// The pixmap is this many times larger than the bitmap (supersampled
+    /// `-S 2`/`-S 4`; 1 otherwise). Ghostscript draws a pattern's lines
+    /// hard-edged at the bitmap's own resolution, whatever the smoothing, so
+    /// with more than 1 they are drawn at that resolution and enlarged.
+    pub pattern_k: u32,
 }
 
 fn color(c: Rgba) -> Color {
@@ -145,8 +150,10 @@ fn draw_path(
             pm.fill_path(&path, &paint(*bg, aa), rule, Transform::identity(), None);
             if let Some(mut mask) = Mask::new(pm.width(), pm.height()) {
                 mask.fill_path(&path, rule, aa, Transform::identity());
-                // Pattern lines over the visible part of the shape, in Fig units.
-                if let Some(inv) = t.invert() {
+                if opts.pattern_k > 1 {
+                    draw_pattern_at_bitmap_resolution(pm, &mask, bb, *kind, *fg, opts);
+                } else if let Some(inv) = t.invert() {
+                    // Pattern lines over the visible part of the shape, in Fig units.
                     let vis = Rect::from_points(bb.intersection_or_empty(&view).corners().map(|p| inv.apply(p)));
                     let (lines, line_width) = coverage(*kind, &vis, &opts.pattern);
                     let subs: Vec<SubPath> = lines
@@ -174,6 +181,83 @@ fn draw_path(
         st.width += f(2.0 * opts.adjust_px);
         pm.stroke_path(&path, &paint(s.color, aa), &st, Transform::identity(), None);
     }
+}
+
+/// A pattern's lines as ghostscript draws them into a smoothed bitmap: hard
+/// pixels at the bitmap's resolution (`opts.pattern_k` pixels of `pm` make
+/// one), shown where `mask` (the shape, at `pm`'s resolution) lets them
+/// through. `bb` is the shape's box in `pm` pixels.
+fn draw_pattern_at_bitmap_resolution(
+    pm: &mut Pixmap,
+    mask: &Mask,
+    bb: Rect,
+    kind: i32,
+    fg: Rgba,
+    opts: &RasterOptions,
+) {
+    let k = opts.pattern_k;
+    let kf = f64::from(k);
+    // The part of the bitmap the shape can touch, in bitmap pixels.
+    let (bw, bh) = (pm.width() / k, pm.height() / k);
+    let clamp = |v: f64, hi: u32| v.clamp(0.0, f64::from(hi));
+    let x0 = clamp((bb.min.x / kf).floor() - 1.0, bw) as u32;
+    let y0 = clamp((bb.min.y / kf).floor() - 1.0, bh) as u32;
+    let x1 = clamp((bb.max.x / kf).ceil() + 1.0, bw) as u32;
+    let y1 = clamp((bb.max.y / kf).ceil() + 1.0, bh) as u32;
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+    let t1 = opts
+        .transform
+        .then(&Affine::scale(1.0 / kf, 1.0 / kf))
+        .then(&Affine::translate(-f64::from(x0), -f64::from(y0)));
+    let Some(inv) = t1.invert() else {
+        return;
+    };
+    let Some(mut tile) = Pixmap::new(x1 - x0, y1 - y0) else {
+        return;
+    };
+    let region = Rect::new(Point::ZERO, Point::new(f64::from(x1 - x0), f64::from(y1 - y0)));
+    let vis = Rect::from_points(region.corners().map(|p| inv.apply(p)));
+    let (lines, line_width) = coverage(kind, &vis, &opts.pattern);
+    let subs: Vec<SubPath> = lines
+        .into_iter()
+        .map(|pts| SubPath {
+            pts,
+            closed: false,
+            curve: None,
+        })
+        .collect();
+    let Some(lp) = build_path(&subs, &t1) else {
+        return;
+    };
+    let st = tiny_skia::Stroke {
+        width: f((line_width * t1.mean_scale()).max(0.5) + GS_FILL_ADJUST),
+        ..tiny_skia::Stroke::default()
+    };
+    tile.stroke_path(&lp, &paint(fg, false), &st, Transform::identity(), None);
+    // Enlarge by pixel repetition to `pm`'s resolution.
+    let Some(mut big) = Pixmap::new((x1 - x0) * k, (y1 - y0) * k) else {
+        return;
+    };
+    let (tw, bgw, kk) = (tile.width() as usize, big.width() as usize, k as usize);
+    let src = tile.data();
+    for (y, row) in big.data_mut().chunks_exact_mut(bgw * 4).enumerate() {
+        for (x, px) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+            let i = ((y / kk) * tw + x / kk) * 4;
+            if let Some(p) = src.get(i..i + 4) {
+                px.copy_from_slice(p);
+            }
+        }
+    }
+    pm.draw_pixmap(
+        (x0 * k) as i32,
+        (y0 * k) as i32,
+        big.as_ref(),
+        &PixmapPaint::default(),
+        Transform::identity(),
+        Some(mask),
+    );
 }
 
 /// Text outlines in Fig units, justified, rotated and placed at the origin.
@@ -522,6 +606,7 @@ pub fn render_sized(
                 Smoothing::Antialias => 0.0,
             },
             pattern,
+            pattern_k: k,
         },
         aa,
     );
@@ -634,6 +719,64 @@ mod tests {
         let mid = pm.pixel(pm.width() / 2, pm.height() / 2).unwrap();
         assert_eq!((mid.red(), mid.green(), mid.blue()), (255, 0, 0));
         assert!(!encode_png(&pm).unwrap().is_empty());
+    }
+
+    /// Ghostscript draws a pattern's lines hard at the bitmap's resolution
+    /// whatever `-S` says: inside the shape a smoothed bitmap has the same
+    /// pixels as the unsmoothed one.
+    #[test]
+    fn pattern_pixels_are_hard_when_smoothed() {
+        let corners = [
+            Point::new(0.0, 0.0),
+            Point::new(2400.0, 0.0),
+            Point::new(2400.0, 2400.0),
+            Point::new(0.0, 2400.0),
+        ];
+        let scene = Scene {
+            prims: vec![Prim::Path {
+                subpaths: vec![SubPath {
+                    pts: corners.to_vec(),
+                    closed: true,
+                    curve: None,
+                }],
+                fill: Some(Fill::Pattern {
+                    kind: 44,
+                    fg: Rgba::opaque(Rgb::new(0, 0, 0)),
+                    bg: Rgba::opaque(Rgb::new(255, 0, 0)),
+                    nonzero: false,
+                }),
+                stroke: None,
+            }],
+        };
+        let r = Rect::from_points(corners);
+        let render = |sm| {
+            render_sized(
+                &scene,
+                &r,
+                0.1,
+                (240, 240),
+                Some(Rgba::opaque(Rgb::WHITE)),
+                PatternFrame::screen(),
+                sm,
+            )
+            .unwrap()
+        };
+        let hard = render(Smoothing::None);
+        for k in [2, 4] {
+            let soft = render(Smoothing::Supersample(k));
+            let mut same = 0;
+            for y in 8..232 {
+                for x in 8..232 {
+                    let (a, b) = (hard.pixel(x, y).unwrap(), soft.pixel(x, y).unwrap());
+                    assert!(
+                        matches!((b.red(), b.green(), b.blue()), (255, 0, 0) | (0, 0, 0)),
+                        "{x},{y}"
+                    );
+                    same += usize::from((a.red(), a.green()) == (b.red(), b.green()));
+                }
+            }
+            assert_eq!(same, 224 * 224, "k = {k}");
+        }
     }
 
     #[test]
