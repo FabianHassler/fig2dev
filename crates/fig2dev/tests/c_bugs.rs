@@ -81,3 +81,59 @@ fn turned_ellipses_are_turned() {
     let n = numbers(l);
     assert!(n.len() >= 2 && n[n.len() - 1] > n[n.len() - 2], "{l}");
 }
+
+#[test]
+fn metafont_shaded_polyline_and_turned_ellipse() {
+    let out = run(
+        "mf",
+        "2 2 0 1 0 7 50 -1 10 0.000 0 0 -1 0 0 5\n\t 600 600 1200 600 1200 1200 600 1200 600 600\n",
+    );
+    assert!(out.contains("unfilled polyline"), "{out}");
+    assert!(!out.contains("unfilledpolyline"), "{out}");
+    let out = run(
+        "mf",
+        "1 1 0 1 0 7 50 -1 -1 0.000 1 0.5236 3000 3000 600 300 3000 3000 3600 3300\n",
+    );
+    let l = out.lines().find(|l| l.contains("ellipse((")).unwrap();
+    assert!(l.ends_with(",30.000000);") || l.contains(",30.0000"), "{l}");
+}
+
+#[test]
+fn ge_splines_are_scaled_like_lines() {
+    use fig2dev::object::{Compound, Point, Spline};
+    // The reader turns splines into lines first, so the driver is called
+    // directly: 1200 Fig units at 1200 ppi are 254 tenths of a millimetre
+    // (genge.c wrote splines in Fig units).
+    let mut ctx = fig2dev::Ctx {
+        lang: "ge".into(),
+        ..fig2dev::Ctx::default()
+    };
+    let mut dev = fig2dev::drivers::driver("ge").unwrap();
+    let mut out = fig2dev::Out::new();
+    dev.start(&mut ctx, &mut out, &Compound::default()).unwrap();
+    let s = Spline {
+        thickness: 1,
+        points: vec![Point::new(1200, 1200), Point::new(2400, 1200), Point::new(2400, 2400)],
+        ..Spline::default()
+    };
+    dev.spline(&mut ctx, &mut out, &s).unwrap();
+    let text = String::from_utf8(out.buf).unwrap();
+    assert!(text.contains("n 254.0 254.0 m"), "{text}");
+}
+
+#[test]
+fn pictex_black_box_keeps_its_border_width() {
+    // Thickness 3 is 2pt in PiCTeX; after the black fill the border gets it
+    // back (genpictex.c wrote the Fig thickness as points: 3pt).
+    let out = run(
+        "pictex",
+        "2 2 0 3 0 7 50 -1 20 0.000 0 0 -1 0 0 5\n\t 600 600 1800 600 1800 1200 600 1200 600 600\n",
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    let fill = lines
+        .iter()
+        .position(|l| l.contains("\\linethickness= 1.270cm"))
+        .unwrap();
+    assert_eq!(lines.get(fill - 2), Some(&"\\linethickness=2pt"), "{out}");
+    assert_eq!(lines.get(fill + 2), Some(&"\\linethickness=2pt"), "{out}");
+}

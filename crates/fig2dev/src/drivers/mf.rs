@@ -122,17 +122,13 @@ impl Mf {
         out.puts(");\n");
     }
 
-    /// The fill of a closed or filled path.
-    fn fill(out: &mut Out, fill_style: i32, shade_space: bool) {
+    /// The fill of a closed or filled path. genmf.c left out the blank
+    /// after `unfilled` for polylines (`unfilledpolyline`, not mfpic).
+    fn fill(out: &mut Out, fill_style: i32) {
         if fill_style == BLACK_FILL {
             out.puts("  filled ");
         } else if fill_style < BLACK_FILL && fill_style > 0 {
-            fprintf!(
-                out,
-                "  shade({:.6}pt) unfilled{}",
-                dofill(fill_style),
-                if shade_space { " " } else { "" }
-            );
+            fprintf!(out, "  shade({:.6}pt) unfilled ", dofill(fill_style));
         } else if fill_style == 0 {
             out.puts("  drawn unfilled ");
         } else {
@@ -235,13 +231,16 @@ impl Driver for Mf {
                 self.y(e.center.y),
                 self.x(e.radiuses.x)
             ),
+            // Turned by the ellipse's angle, in degrees counter-clockwise
+            // (y is up); genmf.c wrote 0.
             1 | 2 => fprintf!(
                 out,
-                "ellipse(({:.6},{:.6}),{:.6},{:.6},0);\n",
+                "ellipse(({:.6},{:.6}),{:.6},{:.6},{:.6});\n",
                 self.x(e.center.x),
                 self.y(e.center.y),
                 self.x(e.radiuses.x),
-                self.x(e.radiuses.y)
+                self.x(e.radiuses.y),
+                e.angle.to_degrees()
             ),
             _ => {}
         }
@@ -255,7 +254,7 @@ impl Driver for Mf {
         if l.type_ == 1 && l.fill_style < 0 {
             out.puts("  drawn polyline(false)\n");
         } else {
-            Mf::fill(out, l.fill_style, false);
+            Mf::fill(out, l.fill_style);
             out.puts("polyline(true)\n");
         }
         self.points(out, &l.points);
@@ -269,7 +268,7 @@ impl Driver for Mf {
         if s.type_ == 0 || (s.type_ == 2 && s.fill_style < 0) {
             out.puts("  drawn curve(false)\n");
         } else {
-            Mf::fill(out, s.fill_style, true);
+            Mf::fill(out, s.fill_style);
             out.puts("curve(true)\n");
         }
         self.points(out, &s.points);

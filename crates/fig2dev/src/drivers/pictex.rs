@@ -104,19 +104,24 @@ fn cy(v: f64, ppi: f64) -> f64 {
 }
 
 impl Pictex {
+    /// `\linethickness` for `cur_thickness` (1 or more): half a point for
+    /// 1, else one point less than the thickness.
+    fn put_linethickness(&self, out: &mut Out) {
+        if self.cur_thickness == 1 {
+            fprintf!(out, "\\linethickness={:6.3}pt\n", 0.5);
+        } else {
+            fprintf!(out, "\\linethickness={}pt\n", self.cur_thickness.wrapping_sub(1));
+        }
+    }
+
     /// `set_linewidth`.
     fn set_linewidth(&mut self, out: &mut Out, ctx: &Ctx, w: i32) {
         if w == 0 {
             out.puts("\\linethickness=0pt\n");
             self.cur_thickness = 0;
         } else {
-            self.cur_thickness = round(f64::from(w) * ctx.mag * 80.0 / ctx.ppi);
-            if self.cur_thickness == 0 || self.cur_thickness == 1 {
-                self.cur_thickness = 1;
-                fprintf!(out, "\\linethickness={:6.3}pt\n", 0.5 * f64::from(self.cur_thickness));
-            } else {
-                fprintf!(out, "\\linethickness={}pt\n", self.cur_thickness.wrapping_sub(1));
-            }
+            self.cur_thickness = round(f64::from(w) * ctx.mag * 80.0 / ctx.ppi).max(1);
+            self.put_linethickness(out);
         }
         match self.cur_thickness {
             0 => out.puts("\\setplotsymbol ({\\thinlinefont \\ })\n"),
@@ -223,7 +228,9 @@ impl Pictex {
                     Cf(cx(urx, ppi)),
                     Cf(ym)
                 );
-                fprintf!(out, "\\linethickness={}pt\n", l.thickness);
+                // Back to what set_linewidth chose (genpictex.c wrote the
+                // Fig thickness as points).
+                self.put_linethickness(out);
             } else if fill > BLACK_FILL * 3 / 4 {
                 out.puts("\\setshadegrid span <1pt>\n\\shaderectangleson\n");
             } else if fill > BLACK_FILL * 2 / 4 {

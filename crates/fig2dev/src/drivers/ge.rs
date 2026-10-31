@@ -102,27 +102,31 @@ impl Ge {
     /// `genge_itp_spline`. fig2dev first walks its control point pointer
     /// to the last control point and then reads past it, so it crashes on
     /// every interpolated spline; here the controls are taken in order.
-    fn itp_spline(out: &mut Out, s: &Spline) {
+    /// Like every other object, in `SCALE`d units (genge.c wrote splines
+    /// in Fig units, about 4.7 times too large at 1200 ppi).
+    fn itp_spline(&self, out: &mut Out, s: &Spline) {
+        let f = f64::from(self.scale);
         let Some(p0) = s.points.first() else { return };
-        fprintf!(out, "n {} {} m\n", p0.x, p0.y);
+        fprintf!(out, "n {} {} m\n", self.sc(p0.x), self.sc(p0.y));
         for (k, q) in s.points.iter().enumerate().skip(1) {
             let a = s.controls.get(k - 1).copied().unwrap_or_default();
             let b = s.controls.get(k).copied().unwrap_or_default();
             fprintf!(
                 out,
                 "\t{:.1} {:.1} {:.1} {:.1} {} {} curveto\n",
-                a.rx,
-                a.ry,
-                b.lx,
-                b.ly,
-                q.x,
-                q.y
+                a.rx * f,
+                a.ry * f,
+                b.lx * f,
+                b.ly * f,
+                self.sc(q.x),
+                self.sc(q.y)
             );
         }
     }
 
-    /// `genge_ctl_spline`.
-    fn ctl_spline(out: &mut Out, s: &Spline) {
+    /// `genge_ctl_spline`, in `SCALE`d units (genge.c: Fig units).
+    fn ctl_spline(&self, out: &mut Out, s: &Spline) {
+        let f = f64::from(self.scale);
         let closed = s.closed_spline();
         if closed {
             out.puts("% Closed spline\n");
@@ -133,8 +137,8 @@ impl Ge {
             return;
         };
         set_style(out, s.style);
-        let (x1, y1) = (f64::from(p0.x), f64::from(p0.y));
-        let (mut c, mut d) = (f64::from(p1.x), f64::from(p1.y));
+        let (x1, y1) = (f64::from(p0.x) * f, f64::from(p0.y) * f);
+        let (mut c, mut d) = (f64::from(p1.x) * f, f64::from(p1.y) * f);
         let (a, b) = ((x1 + c) / 2.0, (y1 + d) / 2.0);
         let (mut x3, mut y3) = (a, b);
         if closed {
@@ -145,8 +149,8 @@ impl Ge {
         for q in s.points.iter().skip(2) {
             let (x1, y1) = (x3, y3);
             let (x2, y2) = (c, d);
-            c = f64::from(q.x);
-            d = f64::from(q.y);
+            c = f64::from(q.x) * f;
+            d = f64::from(q.y) * f;
             x3 = (x2 + c) / 2.0;
             y3 = (y2 + d) / 2.0;
             fprintf!(
@@ -277,9 +281,9 @@ impl Driver for Ge {
             back_arrow(out, b);
         }
         if s.int_spline() {
-            Ge::itp_spline(out, s);
+            self.itp_spline(out, s);
         } else {
-            Ge::ctl_spline(out, s);
+            self.ctl_spline(out, s);
         }
         if let Some(f) = s.for_arrow.as_ref().filter(|_| arrows) {
             for_arrow(out, f);
