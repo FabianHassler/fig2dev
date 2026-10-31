@@ -623,9 +623,10 @@ impl Pstricks {
             self.colors.push(ColorEntry {
                 name: format!("usrclr{}", roman_numeral(i as u32)),
                 defined: false,
-                r: f64::from(u.r) / 256.0,
-                g: f64::from(u.g) / 256.0,
-                b: f64::from(u.b) / 256.0,
+                // C divided by 256, so 255 never reached 1.
+                r: f64::from(u.r) / 255.0,
+                g: f64::from(u.g) / 255.0,
+                b: f64::from(u.b) / 255.0,
                 shades: 0,
                 tints: 0,
             });

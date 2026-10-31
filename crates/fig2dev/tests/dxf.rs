@@ -390,3 +390,39 @@ fn same_as_fig2dev() {
         assert!(same * 10 >= total * 9, "{same} of {total} identical");
     }
 }
+
+const HEAD: &str = "#FIG 3.2\nLandscape\nCenter\nInches\nLetter\n100.00\nSingle\n-2\n1200 2\n";
+
+/// The numbers after each group code `code` (" 10", " 20", ...).
+fn group(out: &str, code: &str) -> Vec<f64> {
+    let lines: Vec<&str> = out.lines().collect();
+    lines
+        .windows(2)
+        .filter(|w| w[0] == code)
+        .map(|w| w[1].trim().parse().unwrap())
+        .collect()
+}
+
+#[test]
+fn rounded_box_spans_its_corners() {
+    // gendxf.c compared the flipped y with the raw y: the box collapsed.
+    let fig = format!("{HEAD}2 4 0 1 0 7 50 -1 -1 0.000 0 0 7 0 0 5\n\t 600 600 1800 600 1800 1200 600 1200 600 600\n");
+    let (out, _, _) = dxf(&fig, &[]).unwrap();
+    let ys: Vec<f64> = group(&out, " 20").into_iter().chain(group(&out, " 21")).collect();
+    let (lo, hi) = ys.iter().fold((f64::MAX, f64::MIN), |(a, b), &y| (a.min(y), b.max(y)));
+    // 600 Fig units high: 0.5 inch.
+    assert!((hi - lo - 0.5).abs() < 0.01, "{lo} {hi}\n{out}");
+}
+
+#[test]
+fn tall_and_turned_ellipses() {
+    // rx 300, ry 600, turned by 30°: the major axis is the y radius.
+    let fig = format!("{HEAD}1 1 0 1 0 7 50 -1 -1 0.000 1 0.5236 1200 1200 300 600 1200 1200 1500 1800\n");
+    let (out, _, _) = dxf(&fig, &[]).unwrap();
+    let ratio = *group(&out, " 40").last().unwrap();
+    assert!((ratio - 0.5).abs() < 1e-4, "{out}");
+    let (mx, my) = (*group(&out, " 11").last().unwrap(), *group(&out, " 21").last().unwrap());
+    // 0.5 inch long, at 30° + 90°.
+    assert!((mx.hypot(my) - 0.5).abs() < 0.01, "{out}");
+    assert!((my.atan2(mx).to_degrees() - 120.0).abs() < 0.5, "{out}");
+}

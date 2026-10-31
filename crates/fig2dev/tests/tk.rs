@@ -168,7 +168,7 @@ fn tk_full_page_landscape_background() {
 
 # Page size specified: A4
 # Landscape orientation
-set xfigCanvas [canvas .c -width 10.52i -height 7.44i] -bg #10000100
+set xfigCanvas [canvas .c -width 10.52i -height 7.44i -bg #ff00ff]
 $xfigCanvas config -xscrollincrement 1p -yscrollincrement 1p
 pack $xfigCanvas
 

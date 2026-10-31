@@ -12,6 +12,11 @@
   - MetaPost: the forward arrowhead of an approximated spline sits on the last point (C put it on the last point but one).
   - Gerber: `%SF…*%` and circular apertures `%ADD…C,…*%` end in `*%` (C wrote `%` and `%*`); the `D02` that ends a filled polygon or an arc ends its block (C left it on the next block's line), and no empty block is written before a flash.
   - `-h -L mf`: `-Y ymax` (C's help says `-Y xmax`).
+  - SVG: shades and tints of a colour with red in it (fill 1-19, 21-39) had a wrong colour (C's blue mask let the red byte in: a half shade of red was `#7f807f`, now `#7f0000`).
+  - Tk: `-g` puts `-bg` inside `[canvas …]` (C wrote it after the `]`, a Tcl error) with 8-bit channels (C divided the 16-bit ones by 255: white was `#101101101`).
+  - PSTricks: user colours are divided by 255 (C: 256, so 255 never reached 1).
+  - DXF: rounded boxes span their corners (C compared the flipped y with the raw y); ellipses take the longer radius as the major axis (ratio at most 1, as DXF requires) and are turned by their angle (C ignored it); the picture warning says DXF (C: "IBMGL").
+  - LaTeX: dark brown is `.5,.19,0` (128, 48, 0; C: `.17`).
 
 ## 0.9.3 — 2026-10-28
 

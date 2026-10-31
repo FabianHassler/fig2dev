@@ -209,9 +209,10 @@ fn rgb_color_val(ctx: &Ctx, idx: i32) -> u32 {
     (((u.r & 0xff) as u32) << 16) | (((u.g & 0xff) as u32) << 8) | (u.b & 0xff) as u32
 }
 
-/// `rgbFillVal`: the colour of a shade or tint. C's masks (`~0xFFFF00` for
-/// the blue part) let the red byte into the blue computation; that is kept,
-/// and so are C's saturating float conversions as on arm64.
+/// `rgbFillVal`: the colour of a shade or tint. C's mask for the blue part
+/// (`~0xFFFF00`) let the red byte in, which turned shades and tints of any
+/// colour with red into garbage; blue is `rgb & 0xff` here. C's saturating
+/// float conversions as on arm64 are kept.
 fn rgb_fill_val(ctx: &Ctx, color_index: i32, area_fill: i32) -> u32 {
     let (mut color_index, mut area_fill) = (color_index, area_fill);
     if color_index == BLACK_COLOR || color_index == DEFAULT {
@@ -228,7 +229,7 @@ fn rgb_fill_val(ctx: &Ctx, color_index: i32, area_fill: i32) -> u32 {
         area_fill -= NUMSHADES - 1;
     }
     let t = f64::from(area_fill) / f64::from(NUMSHADES - 1);
-    let (r, g, b) = ((rgb & 0xffff_0000) >> 16, (rgb & 0xff00) >> 8, rgb & 0xff00_00ff);
+    let (r, g, b) = ((rgb & 0xffff_0000) >> 16, (rgb & 0xff00) >> 8, rgb & 0xff);
     if tint {
         let up = |c: u32| (f64::from(c) + t * f64::from(0xffu32.wrapping_sub(c))) as u32;
         ((up(r) & 0xff) << 16)

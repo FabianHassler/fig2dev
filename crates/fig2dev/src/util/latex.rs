@@ -39,7 +39,7 @@ pub const LATEX_STD_COLORS: [&str; NUM_STD_COLS] = [
     ".56,0,.56", // dk magenta
     ".69,0,.69", // md magenta
     ".82,0,.82", // lt magenta
-    ".5,.17,0",  // dk brown
+    ".5,.19,0",  // dk brown: 128,48,0 (genlatex.c says .17)
     ".63,.25,0", // md brown1
     ".75,.38,0", // md brown1
     "1,.5,.5",   // dk pink
