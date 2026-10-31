@@ -70,10 +70,11 @@ fn a_declared_latin1_input_is_converted_to_utf8_for_tex() {
 }
 
 #[test]
-fn symbol_text_is_one_char_code_per_byte() {
+fn symbol_text_is_one_char_code_per_character() {
+    // fig2dev 3.2.9a wrote \\char194\\char177, one per UTF-8 byte.
     let f = fig("", "4 0 0 50 -1 32 12 0.0 4 135 900 1200 1200 a±b\\001\n".as_bytes());
     let out = run("latex", &f, None);
-    assert!(has(&out, b"a\\char194\\char177b"), "{}", String::from_utf8_lossy(&out));
+    assert!(has(&out, b"a\\char177b"), "{}", String::from_utf8_lossy(&out));
 }
 
 #[test]

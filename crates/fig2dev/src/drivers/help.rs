@@ -177,8 +177,8 @@ const MF: DriverHelp = d(
         o('x', "xmin", "specifies minimum x coordinate of figure (inches)"),
         o('y', "ymin", "specifies minimum y coordinate of figure (inches)"),
         o('X', "xmax", "specifies maximum x coordinate of figure (inches)"),
-        // help_msg says "-Y xmax" here (a typo kept).
-        o('Y', "xmax", "specifies maximum y coordinate of figure (inches)"),
+        // help_msg says "-Y xmax" here, a typo.
+        o('Y', "ymax", "specifies maximum y coordinate of figure (inches)"),
     ],
 );
 

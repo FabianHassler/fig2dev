@@ -306,12 +306,11 @@ pub fn conv_textisutf8(ctx: &mut Ctx, s: &[u8]) -> Option<usize> {
     }
 }
 
-/// `convertutf8tolatin1` on `s` (in C, from the first non-ASCII byte on,
-/// in place), with its quirks: only the lead bytes `0xc0..=0xc3` (and
-/// bytes `0xe0..=0xef` that fail the next test) pass the mask `0xd0`, any
-/// other run of non-ASCII bytes is dropped together with the byte after the
-/// run, and a lead byte needs a following non-NUL byte. Where C would read
-/// beyond the terminating NUL, the string ends.
+/// `convertutf8tolatin1` on `s`: a two-byte UTF-8 character of the Latin-1
+/// range (lead byte `0xc0..=0xc3`) becomes its Latin-1 byte; any other
+/// non-ASCII character, or a stray byte, is dropped. The string ends at a
+/// NUL. C's loop also dropped every following non-ASCII byte and the byte
+/// after them, so one character Latin-1 lacks took the next ones with it.
 pub fn convertutf8tolatin1(s: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(s.len());
     let at = |i: usize| s.get(i).copied().unwrap_or(0);
@@ -320,15 +319,13 @@ pub fn convertutf8tolatin1(s: &[u8]) -> Vec<u8> {
         let b = at(c);
         if b & 0x80 == 0 {
             out.push(b);
-        } else if b & 0xd0 == 0xc0 && (b & 0x3f) < 4 && at(c + 1) != 0 {
+        } else if (0xc0..=0xc3).contains(&b) && at(c + 1) & 0xc0 == 0x80 {
             c += 1;
             out.push((b & 0x3f) << 6 | (at(c) & 0x3f));
         } else {
-            while at(c) != 0 && at(c) & 0x80 != 0 {
+            // Not in Latin-1: the character goes with its continuation bytes.
+            while at(c + 1) & 0xc0 == 0x80 {
                 c += 1;
-            }
-            if at(c) == 0 {
-                break;
             }
         }
         c += 1;
@@ -341,12 +338,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn utf8_to_latin1_as_c() {
+    fn utf8_to_latin1() {
         assert_eq!(convertutf8tolatin1("a±b".as_bytes()), b"a\xb1b");
         assert_eq!(convertutf8tolatin1("a\u{1}Ā".as_bytes()), b"a\x01");
-        // Latin-1 bytes (not UTF-8): the run is dropped with the byte after it.
-        assert_eq!(convertutf8tolatin1(b"a\xe9bc"), b"ac");
+        // Only the character Latin-1 lacks goes, not the ones after it.
+        assert_eq!(convertutf8tolatin1("aĀ±b€c".as_bytes()), b"a\xb1bc");
+        // A stray Latin-1 byte (not UTF-8) is dropped alone.
+        assert_eq!(convertutf8tolatin1(b"a\xe9bc"), b"abc");
         assert_eq!(convertutf8tolatin1(b"a\xe9"), b"a");
+        assert_eq!(convertutf8tolatin1(b"a\xc3\0b"), b"a");
     }
 
     #[test]
