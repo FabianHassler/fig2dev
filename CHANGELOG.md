@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- PDF: centred and right-justified text in the standard 14 fonts (Times, Helvetica, Courier; the PDF names them and does not embed them) is placed with the Adobe Core 14 AFM advance widths, which is how the viewer draws them, instead of the widths of the installed or fallback font (`scene/afm.rs`). Left-justified text is unchanged.
+
 ## 0.9.3 — 2026-10-28
 
 - On crates.io as `figbase`, `fig2dev-rs-lib` (the library, still `fig2dev::…` in code) and `fig2dev-rs` (`cargo install fig2dev-rs` installs the `fig2dev` program); the name `fig2dev` stays the C program's. Packages renamed: `fig2dev` → `fig2dev-rs-lib`, `fig2dev-cli` → `fig2dev-rs`. The packages carry the licence texts (MIT, Apache-2.0 and xfig's notice, SPDX `(MIT OR Apache-2.0) AND Xfig`), keywords and the README.
