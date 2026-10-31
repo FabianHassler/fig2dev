@@ -89,6 +89,61 @@ pub struct Ellipse {
     pub comments: Vec<Comment>,
 }
 
+impl Ellipse {
+    /// The radii as drawn without turning: as they are for an angle of 0 or
+    /// 180°, swapped for 90° or 270°; `None` for any other angle.
+    pub fn axis_radii(&self) -> Option<(i32, i32)> {
+        let q = self.angle / std::f64::consts::FRAC_PI_2;
+        if !q.is_finite() || (q - q.round()).abs() > 1e-3 {
+            return None;
+        }
+        let (rx, ry) = (self.radiuses.x, self.radiuses.y);
+        Some(if (q.round() as i64).rem_euclid(2) == 1 {
+            (ry, rx)
+        } else {
+            (rx, ry)
+        })
+    }
+
+    /// The ellipse as a closed polygon of `n` points, turned by its angle
+    /// (counter-clockwise on the page), with its line and fill attributes;
+    /// for drivers that cannot turn an ellipse.
+    pub fn to_polygon(&self, n: usize) -> Line {
+        let (rx, ry) = (f64::from(self.radiuses.x), f64::from(self.radiuses.y));
+        let (sa, ca) = self.angle.sin_cos();
+        let (cx, cy) = (f64::from(self.center.x), f64::from(self.center.y));
+        let n = n.max(4);
+        let mut points: Vec<Point> = (0..n)
+            .map(|i| {
+                let t = 2.0 * std::f64::consts::PI * i as f64 / n as f64;
+                let (u, v) = (rx * t.cos(), ry * t.sin());
+                Point::new(
+                    (cx + u * ca + v * sa).round() as i32,
+                    (cy - u * sa + v * ca).round() as i32,
+                )
+            })
+            .collect();
+        if let Some(&first) = points.first() {
+            points.push(first);
+        }
+        Line {
+            type_: T_POLYGON,
+            style: self.style,
+            thickness: self.thickness,
+            pen_color: self.pen_color,
+            fill_color: self.fill_color,
+            depth: self.depth,
+            pen: self.pen,
+            fill_style: self.fill_style,
+            style_val: self.style_val,
+            join_style: 1,
+            points,
+            comments: self.comments.clone(),
+            ..Line::default()
+        }
+    }
+}
+
 /// Arc types.
 pub const T_OPEN_ARC: i32 = 1;
 pub const T_PIE_WEDGE_ARC: i32 = 2;

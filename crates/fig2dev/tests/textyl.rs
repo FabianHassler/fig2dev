@@ -67,6 +67,7 @@ fn dashed_box_and_options() {
 
 #[test]
 fn arc_and_circle() {
+    // The arrowhead as the SVG driver draws it (gentextyl.c turned it over).
     let (out, _, _) = run("textyl", ARC_AND_DOT, &[]).unwrap();
     assert_eq!(
         out,
@@ -74,8 +75,8 @@ fn arc_and_circle() {
 %
 % arrow head
 %
-\special{tyl line S 2 7222836 2877294; 7104430 2403665}
-\special{tyl line S 2 7104430 2403665; 6986022 2877294}
+\special{tyl line S 2 6986022 1930036; 7104430 2403665}
+\special{tyl line S 2 7104430 2403665; 7222836 1930036}
 \special{tyl arc S 2 L 0 2368143 @ 4736286,2403665 180 0}
 %
 % Fig ELLIPSE

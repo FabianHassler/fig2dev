@@ -571,8 +571,9 @@ fn arc_arrow(pt1: FPoint, pt2: FPoint, direction: bool, arrow: &Arrow) -> FPoint
     let lpt = arrow.thickness / 30.0 / (arrow.wid / arrow.ht / 2.0);
     let h = arrow.ht + lpt;
     if h > 2.0 * r {
-        // `arc_tangent`.
-        return if direction {
+        // `arc_tangent`, which works in y-down coordinates; these are y-up,
+        // so the direction flips (genepic.c reversed the arrowhead here).
+        return if !direction {
             FPoint {
                 x: x2 - (y2 - y1),
                 y: y2 + (x2 - x1),
@@ -587,9 +588,10 @@ fn arc_arrow(pt1: FPoint, pt2: FPoint, direction: bool, arrow: &Arrow) -> FPoint
     let beta = dx.atan2(dy);
     let alpha = 2.0 * (h / 2.0 / r).asin();
     let alpha = if direction { alpha } else { -alpha };
+    // Both rounded (genepic.c rounded only x).
     FPoint {
         x: f64::from(round(r.mul_add((beta + alpha).sin(), x1))),
-        y: r.mul_add((beta + alpha).cos(), y1),
+        y: f64::from(round(r.mul_add((beta + alpha).cos(), y1))),
     }
 }
 
@@ -832,11 +834,15 @@ impl Driver for Epic {
         if self.failed {
             return Ok(());
         }
+        // A turned ellipse as a polygon, a quarter turn by swapping the
+        // radii (genepic.c drew every ellipse unturned).
+        let Some((rx, ry)) = ell.axis_radii() else {
+            return self.line(ctx, out, &ell.to_polygon(72));
+        };
         print_comments(out, "% ", &ell.comments, "");
 
         self.set_linewidth(out, ctx, ell.thickness);
         let pt = self.convert(ell.center);
-        let (rx, ry) = (ell.radiuses.x, ell.radiuses.y);
         let (w, h) = (rx.wrapping_mul(2), ry.wrapping_mul(2));
         if self.tex_lang == TexLang::EEpic
             || self.tex_lang == TexLang::EEpicEmu

@@ -17,6 +17,11 @@
   - PSTricks: user colours are divided by 255 (C: 256, so 255 never reached 1).
   - DXF: rounded boxes span their corners (C compared the flipped y with the raw y); ellipses take the longer radius as the major axis (ratio at most 1, as DXF requires) and are turned by their angle (C ignored it); the picture warning says DXF (C: "IBMGL").
   - LaTeX: dark brown is `.5,.19,0` (128, 48, 0; C: `.17`).
+  - PiCTeX, TextYL, epic (short arcs): arc arrowheads point along the arc as in the SVG driver (C turned them over by mixing y-up and y-down conventions); epic rounds both coordinates of the arrowhead's base.
+  - TikZ: open arcs keep their cap style (C tested the arc type the wrong way round, so wedges got it instead); turned ellipses keep a tenth of a degree (C rounded to whole degrees).
+  - epic, PiCTeX: turned ellipses are turned (a quarter turn swaps the radii, other angles draw a 72-point polygon; C drew every ellipse unturned).
+  - EMF: a turned text's bounds are its four corners (C took the end's y with the wrong sign); arc direction and the arrowhead test are computed in 64 bits (C's int overflowed beyond about 38 inches and turned arcs round).
+  - CGM: the standard colours are xfig's 8-bit values (C truncated its float table: 175 for 176, 214 for 215).
 
 ## 0.9.3 — 2026-10-28
 
