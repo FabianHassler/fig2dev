@@ -4,7 +4,7 @@ members = ["crates/figbase", "crates/fig2dev", "apps/fig2dev", "xtask"]
 default-members = ["apps/fig2dev"]
 
 [workspace.package]
-version = "0.9.4"
+version = "0.9.5"
 edition = "2021"
 license = "(MIT OR Apache-2.0) AND Xfig"
 repository = "https://github.com/FabianHassler/fig2dev"
@@ -12,8 +12,8 @@ homepage = "https://github.com/FabianHassler/fig2dev"
 rust-version = "1.92"
 
 [workspace.dependencies]
-figbase = { path = "crates/figbase", version = "0.9.4" }
-fig2dev = { package = "fig2dev-rs-lib", path = "crates/fig2dev", version = "0.9.4" }
+figbase = { path = "crates/figbase", version = "0.9.5" }
+fig2dev = { package = "fig2dev-rs-lib", path = "crates/fig2dev", version = "0.9.5" }
 serde = { version = "1", features = ["derive", "rc"] }
 tiny-skia = "0.11"
 ttf-parser = "0.25"
