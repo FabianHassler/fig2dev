@@ -22,6 +22,10 @@
   - epic, PiCTeX: turned ellipses are turned (a quarter turn swaps the radii, other angles draw a 72-point polygon; C drew every ellipse unturned).
   - EMF: a turned text's bounds are its four corners (C took the end's y with the wrong sign); arc direction and the arrowhead test are computed in 64 bits (C's int overflowed beyond about 38 inches and turned arcs round).
   - CGM: the standard colours are xfig's 8-bit values (C truncated its float table: 175 for 176, 214 for 215).
+  - MetaFont: shaded polylines write `unfilled polyline` (C: `unfilledpolyline`, not mfpic); ellipses are turned by their angle (C wrote 0).
+  - ge: splines are written in the same units as everything else (C wrote Fig units, about 4.7 times too large).
+  - PiCTeX: a black-filled box keeps its border width after the fill (C set the Fig thickness as points).
+  - EPS pictures: the size covers the whole points the bounding box touches (C truncated a fractional box a point short), as for PDF pictures.
 
 ## 0.9.3 — 2026-10-28
 

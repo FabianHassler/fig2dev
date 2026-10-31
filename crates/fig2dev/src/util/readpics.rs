@@ -1439,8 +1439,11 @@ pub fn read_eps(data: &[u8], pic: &mut Pic) -> Result<(i32, i32), String> {
                 .split_once(':')
                 .and_then(|(_, r)| numbers(r, 4))
                 .ok_or("Bad EPS file")?;
+            // The whole points the box touches, as for PDF (readeps.c
+            // truncated the size, a point short for a fractional box).
             ll = (v[0].floor() as i32, v[1].floor() as i32);
-            pic.bit_size = Point::new((v[2] - v[0]) as i32, (v[3] - v[1]) as i32);
+            let (ur_x, ur_y) = (v[2].ceil() as i32, v[3].ceil() as i32);
+            pic.bit_size = Point::new(ur_x.saturating_sub(ll.0), ur_y.saturating_sub(ll.1));
             break;
         } else if line.starts_with(b"%%Begin") {
             nested += 1;
@@ -2145,7 +2148,8 @@ mod tests {
         let mut pic = Pic::default();
         let eps = b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: (atend)\n%%BeginDocument: x\n%%BoundingBox: 1 1 2 2\n%%EndDocument\n%%BoundingBox: 10.5 20 110 220\n";
         assert_eq!(read_eps(eps, &mut pic), Ok((10, 20)));
-        assert_eq!(pic.bit_size, Point::new(99, 200));
+        // From floor(10.5) to 110 (readeps.c truncated to 99).
+        assert_eq!(pic.bit_size, Point::new(100, 200));
         assert!(read_eps(b"%!\n%%BoundingBox: 1 2 x\n", &mut pic).is_err());
         assert_eq!(read_eps(b"%!\n", &mut pic), Ok((0, 0)));
         assert_eq!(pic.bit_size, Point::new(10, 10));
