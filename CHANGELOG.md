@@ -3,6 +3,7 @@
 ## Unreleased
 
 - PDF: centred and right-justified text in the standard 14 fonts (Times, Helvetica, Courier; the PDF names them and does not embed them) is placed with the Adobe Core 14 AFM advance widths, which is how the viewer draws them, instead of the widths of the installed or fallback font (`scene/afm.rs`). Left-justified text is unchanged.
+- PDF pictures in PostScript and EPS output: axial and radial shadings (as the fill of a path, a shading pattern, or the `sh` operator) are written as PostScript Level 3 `shfill` vectors (the EPS says `%%LanguageLevel: 3`) instead of turning the whole page into one image. Transparency, function-based and mesh shadings, shadings used as strokes, and tiling patterns still make the page an image. PDF pictures encrypted with an empty user password (RC4, AES) are read, as hayro does; tests added.
 
 ## 0.9.3 — 2026-10-28
 

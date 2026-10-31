@@ -3,9 +3,13 @@
 //! in PDF output (a Form XObject), becomes EPS in PostScript output (C's
 //! `pdftops`), is rendered in the bitmap languages; EPS files go through
 //! ghostscript where it is installed. `rich.pdf` (text, a dashed curve, a
-//! sampled image, clips) and `shade.pdf` (a shading, which PostScript
-//! Level 2 can't draw) were written for these tests with ghostscript's
-//! `pdfwrite` from `rich.eps` and a `shfill` program.
+//! sampled image, clips) and `shade.pdf` (an axial shading) were written for
+//! these tests with ghostscript's `pdfwrite` from `rich.eps` and a `shfill`
+//! program; `radial.pdf` (a radial shading by `sh` with a stitched function,
+//! and a shading pattern fill) and `trans.pdf` (a half-transparent fill,
+//! which PostScript can't draw) by hand; `enc.pdf` (AES-256), `enc-rc4.pdf`
+//! (RC4-128) and `locked.pdf` (user password `user`) are `rich.pdf`
+//! encrypted with qpdf.
 
 use fig2dev::util::pdfpic::PdfPicture;
 use fig2dev::{convert, drivers, read::readfp_fig, Ctx};
@@ -77,11 +81,66 @@ fn pdf_picture_in_postscript_is_converted_to_eps() {
 }
 
 #[test]
-fn a_shading_makes_postscript_draw_the_page_as_an_image_with_a_message() {
+fn an_axial_shading_stays_a_vector_in_postscript() {
     let (ps, msgs) = run("eps", "shade.pdf", 0);
+    assert!(msgs.is_empty(), "{msgs:?}");
+    let t = text(&ps);
+    assert!(t.contains("%%LanguageLevel: 3"));
+    assert!(t.contains("/ShadingType 2") && t.contains("shfill"));
+    assert!(!t.contains("colorimage"), "not drawn as an image");
+}
+
+#[test]
+fn radial_shadings_and_shading_patterns_stay_vectors_in_postscript() {
+    let (ps, msgs) = run("eps", "radial.pdf", 0);
+    assert!(msgs.is_empty(), "{msgs:?}");
+    let t = text(&ps);
+    // the `sh` operator (radial, with a stitched function and an
+    // extension) and a pattern fill (axial)
+    assert!(t.contains("/ShadingType 3") && t.contains("/Coords [100 75 0 100 75 70]"));
+    assert!(t.contains("/Extend [false true]"));
+    assert!(t.contains("/ShadingType 2") && t.contains("/Extend [true true]"));
+    assert_eq!(t.matches("shfill").count(), 2);
+    assert!(!t.contains("colorimage"));
+}
+
+#[test]
+fn transparency_still_makes_postscript_draw_the_page_as_an_image_with_a_message() {
+    let (ps, msgs) = run("eps", "trans.pdf", 0);
     assert_eq!(msgs.len(), 1, "{msgs:?}");
-    assert!(msgs[0].contains("shade.pdf") && msgs[0].contains("image"));
+    assert!(msgs[0].contains("trans.pdf") && msgs[0].contains("image"));
     assert!(text(&ps).contains("colorimage"));
+}
+
+#[test]
+fn encrypted_pdfs_with_an_empty_user_password_are_read() {
+    // AES-256 and RC4-128 (made with qpdf from rich.pdf)
+    for file in ["enc.pdf", "enc-rc4.pdf"] {
+        let data = std::fs::read(fixtures().join(file)).unwrap();
+        assert!(PdfPicture::open(data).is_some(), "{file}");
+        let (ps, msgs) = run("eps", file, 0);
+        assert!(msgs.is_empty(), "{file}: {msgs:?}");
+        let t = text(&ps);
+        assert!(t.contains("curveto") && t.contains("setdash"), "{file}");
+        let (pdf, msgs) = run("pdf", file, 0);
+        assert!(msgs.is_empty(), "{file}: {msgs:?}");
+        assert!(text(&pdf).contains("/Subtype /Form"), "{file}");
+        let px = render(pdf, 100, 100)(50, 50);
+        assert!(px[3] > 0 && px[2] > 200, "{file}: {px:?}");
+        let (png, _) = run("png", file, 0);
+        let img = image::load_from_memory(&png).unwrap().to_rgba8();
+        let p = img.get_pixel(img.width() / 2, img.height() / 2).0;
+        assert!(p[2] > 200 && p[0] < 250, "{file}: {p:?}");
+    }
+}
+
+#[test]
+fn a_pdf_that_needs_a_password_is_left_out() {
+    let data = std::fs::read(fixtures().join("locked.pdf")).unwrap();
+    assert!(PdfPicture::open(data).is_none());
+    let (pdf, _) = run("pdf", "locked.pdf", 0);
+    assert!(pdf.starts_with(b"%PDF-"));
+    assert!(!text(&pdf).contains("/Subtype /Form"));
 }
 
 #[test]
@@ -150,14 +209,25 @@ fn a_page_that_is_not_a_pdf_leaves_the_picture_out() {
 /// bring the program down.
 #[test]
 fn mutated_pdfs_never_panic() {
+    for file in ["radial.pdf", "enc.pdf"] {
+        mutate_and_convert(&std::fs::read(fixtures().join(file)).unwrap(), 100);
+    }
     let original = std::fs::read(fixtures().join("rich.pdf")).unwrap();
+    mutate_and_convert(&original, 400);
+    // sizes that make no sense
+    let p = PdfPicture::open(original).unwrap();
+    assert!(p.render(0, 5).is_none());
+    assert!(p.render(1_000_000, 1_000_000).is_none());
+}
+
+fn mutate_and_convert(original: &[u8], rounds: usize) {
     let mut seed = 0x9e3779b97f4a7c15u64;
     let mut next = move || {
         seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         (seed >> 33) as usize
     };
-    for _ in 0..400 {
-        let mut f = original.clone();
+    for _ in 0..rounds {
+        let mut f = original.to_vec();
         for _ in 0..1 + next() % 6 {
             let i = next() % f.len();
             match next() % 3 {
@@ -174,10 +244,6 @@ fn mutated_pdfs_never_panic() {
             let _ = p.xobject(10);
         }
     }
-    // sizes that make no sense
-    let p = PdfPicture::open(original).unwrap();
-    assert!(p.render(0, 5).is_none());
-    assert!(p.render(1_000_000, 1_000_000).is_none());
 }
 
 /// A JPEG picture is carried as it is in PDF output (DCTDecode), where it
