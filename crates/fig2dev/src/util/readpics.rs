@@ -8,8 +8,9 @@
 //!   the working directory). `.gz`, `.Z` and `.z` files are uncompressed
 //!   here (gzip and Unix `compress` LZW, recognised by their magic
 //!   numbers), where C pipes them through `gunzip -c`. `.zip`, `.bz2`,
-//!   `.bz` and `.xz` files are found but reported as unsupported: RustFig
-//!   does not run external programs.
+//!   `.bz` and `.xz` files go through `unzip -p`, `bunzip2 -c` and
+//!   `unxz -c` as in C (run directly, without a shell; not on wasm, where
+//!   they are reported as unsupported).
 //! - [`pic_type`]: the file signatures genps.c recognises.
 //! - [`read_pic`]: fills `Pic`, with fig2dev's messages ("NAME: Bad PNG
 //!   format", "NAME: Unknown image format", libpng's own lines). PNG goes
@@ -156,6 +157,15 @@ pub fn open_stream_pic(ctx: &Ctx, pic: &Pic) -> Result<PicStream, String> {
 
 fn open_path(_ctx: &Ctx, wanted: PathBuf, name: &str) -> Result<PicStream, String> {
     let (path, compression) = file_on_disk(&wanted).ok_or_else(|| format!("{name}: No such picture file"))?;
+    if let Some(program) = external_program(compression) {
+        let data = run_uncompress(program, &path).map_err(|e| format!("{}: {e}", path.display()))?;
+        return Ok(PicStream {
+            name: name.to_string(),
+            path,
+            compression,
+            data,
+        });
+    }
     let file = std::fs::File::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut raw = Vec::new();
     file.take(MAX_PICFILE_BYTES as u64 + 1)
@@ -171,6 +181,58 @@ fn open_path(_ctx: &Ctx, wanted: PathBuf, name: &str) -> Result<PicStream, Strin
         compression,
         data,
     })
+}
+
+/// The program `open_stream` pipes a file of this kind through (`filetypes`),
+/// with its arguments before the file name, where this crate has no decoder.
+fn external_program(c: Compression) -> Option<&'static [&'static str]> {
+    match c {
+        Compression::Zip => Some(&["unzip", "-p"]),
+        Compression::Bzip2 => Some(&["bunzip2", "-c"]),
+        Compression::Xz => Some(&["unxz", "-c"]),
+        Compression::None | Compression::Gzip => None,
+    }
+}
+
+/// Runs `program path` (no shell) and collects its output, as C's `popen`
+/// does; a failure to run or a non-zero exit is an error.
+#[cfg(not(target_arch = "wasm32"))]
+fn run_uncompress(program: &[&str], path: &Path) -> Result<Vec<u8>, String> {
+    use std::process::{Command, Stdio};
+    let (cmd, args) = program.split_first().ok_or("no program")?;
+    let mut child = Command::new(cmd)
+        .args(args)
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("cannot run {cmd}: {e}"))?;
+    let mut data = Vec::new();
+    if let Some(out) = child.stdout.take() {
+        // The limit also bounds a decompression bomb; the rest is drained
+        // below so the child ends instead of blocking on a full pipe.
+        let mut out = out;
+        (&mut out)
+            .take(MAX_PICFILE_BYTES as u64 + 1)
+            .read_to_end(&mut data)
+            .map_err(|e| e.to_string())?;
+        let _ = std::io::copy(&mut out, &mut std::io::sink());
+    }
+    let status = child.wait().map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err(format!("{cmd} failed ({status})"));
+    }
+    if data.len() > MAX_PICFILE_BYTES {
+        return Err("picture file too large".into());
+    }
+    Ok(data)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn run_uncompress(program: &[&str], _path: &Path) -> Result<Vec<u8>, String> {
+    let cmd = program.first().copied().unwrap_or("program");
+    Err(format!("{cmd}-compressed pictures are not supported"))
 }
 
 /// Uncompresses `data`.

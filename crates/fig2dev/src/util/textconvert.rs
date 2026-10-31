@@ -34,6 +34,8 @@ pub enum ConvState {
     Needed(Encoding),
     /// From another charset iconv knows, converted by `encoding_rs`.
     Iconv(&'static encoding_rs::Encoding, bool),
+    /// iconv's ASCII: stops at the first byte beyond 0x7f.
+    Ascii,
 }
 
 /// The `encoding_rs` encoding for an iconv charset name (case-insensitive,
@@ -126,8 +128,14 @@ fn state(ctx: &mut Ctx) -> ConvState {
         // The locale's charset (UTF-8) is the input's.
         None => ConvState::NotNeeded,
         Some(n) if n.eq_ignore_ascii_case("UTF-8") => ConvState::NotNeeded,
+        // iconv does not know a name with blanks (`-E " latin1"`).
+        Some(n) if n.contains(' ') => {
+            ctx.warn(format!("Unable to convert from {n} to UTF-8 character set."));
+            ConvState::NotNeeded
+        }
         Some(n) => match Encoding::from_name(&n) {
             Some(e) => ConvState::Needed(e),
+            None if is_ascii_name(&n) => ConvState::Ascii,
             None => match iconv_encoding(&n) {
                 Some(e) => ConvState::Iconv(e, c1_identity(&n)),
                 None => {
@@ -139,6 +147,72 @@ fn state(ctx: &mut Ctx) -> ConvState {
     };
     ctx.text_conv = st;
     st
+}
+
+/// The names iconv has for ASCII (`encoding_rs` has none: WHATWG's label
+/// `ascii` is windows-1252).
+fn is_ascii_name(name: &str) -> bool {
+    let key: String = name
+        .chars()
+        .filter(|c| !matches!(c, '-' | '_'))
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    matches!(
+        key.as_str(),
+        "ascii" | "usascii" | "ansix3.41968" | "ansix3.41986" | "iso646us" | "646" | "cp367" | "ibm367"
+    )
+}
+
+/// `convert` for ASCII: the bytes before the first one beyond 0x7f, then
+/// "Error converting string ...: Illegal byte sequence".
+fn ascii_convert(ctx: &mut Ctx, s: &[u8]) -> Vec<u8> {
+    let n = s.iter().position(|b| !b.is_ascii()).unwrap_or(s.len());
+    if n < s.len() {
+        ctx.warn(format!(
+            "Error converting string {}: Illegal byte sequence",
+            message_view(s)
+        ));
+    }
+    s.get(..n).unwrap_or_default().to_vec()
+}
+
+/// A string as a message shows it: C prints the bytes as they are, so
+/// bytes that are not UTF-8 become U+F780..=U+F7FF and the program turns
+/// them back when it writes the message ([`message_bytes`]).
+pub fn message_view(b: &[u8]) -> String {
+    let mut out = String::new();
+    let mut rest = b;
+    while !rest.is_empty() {
+        match std::str::from_utf8(rest) {
+            Ok(t) => {
+                out.push_str(t);
+                break;
+            }
+            Err(e) => {
+                let (good, bad) = rest.split_at(e.valid_up_to());
+                out.push_str(std::str::from_utf8(good).unwrap_or_default());
+                let n = e.error_len().unwrap_or(bad.len()).max(1);
+                let (bad, tail) = bad.split_at(n.min(bad.len()));
+                for &x in bad {
+                    out.push(char::from_u32(0xF700 + u32::from(x)).unwrap_or('\u{FFFD}'));
+                }
+                rest = tail;
+            }
+        }
+    }
+    out
+}
+
+/// The bytes of a message: [`message_view`] undone.
+pub fn message_bytes(m: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(m.len());
+    for c in m.chars() {
+        match u32::from(c) {
+            v @ 0xF780..=0xF7FF => out.push((v - 0xF700) as u8),
+            _ => out.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes()),
+        }
+    }
+    out
 }
 
 /// `convert` for an `encoding_rs` charset: like iconv, it stops at the
@@ -158,7 +232,7 @@ fn iconv_convert(ctx: &mut Ctx, e: &'static encoding_rs::Encoding, c1: bool, s: 
                 if bad {
                     ctx.warn(format!(
                         "Error converting string {}: Illegal byte sequence",
-                        byte_view(s)
+                        message_view(s)
                     ));
                     break;
                 }
@@ -185,7 +259,7 @@ fn iconv_convert(ctx: &mut Ctx, e: &'static encoding_rs::Encoding, c1: bool, s: 
     if bad {
         ctx.warn(format!(
             "Error converting string {}: Illegal byte sequence",
-            byte_view(s)
+            message_view(s)
         ));
     }
     out.into_bytes()
@@ -217,6 +291,7 @@ pub fn conv_textstring<'a>(ctx: &mut Ctx, s: &'a [u8]) -> Cow<'a, [u8]> {
         ConvState::Needed(Encoding::Utf8) | ConvState::NotNeeded | ConvState::Unchecked => Cow::Borrowed(s),
         ConvState::Needed(e) => Cow::Owned(e.decode(s).into_bytes()),
         ConvState::Iconv(e, c1) => Cow::Owned(iconv_convert(ctx, e, c1, s)),
+        ConvState::Ascii => Cow::Owned(ascii_convert(ctx, s)),
     }
 }
 
@@ -299,6 +374,16 @@ mod tests {
         assert_eq!(ctx.messages.len(), 1);
         // The reference iconv (macOS) takes KOI8-R but not KOI8R.
         assert!(iconv_encoding("koi8-r").is_some() && iconv_encoding("KOI8R").is_none());
+        let mut ctx = Ctx {
+            input_encoding: Some("us-ascii".into()),
+            ..Ctx::default()
+        };
+        assert_eq!(conv_textstring(&mut ctx, b"ab\xe9c").as_ref(), b"ab");
+        assert_eq!(ctx.messages.len(), 1);
+        assert_eq!(
+            message_bytes(&message_view(b"a\xe9\xc3(\xc3\xa9")),
+            b"a\xe9\xc3(\xc3\xa9"
+        );
         assert_eq!(iconv_encoding("latin9"), iconv_encoding("ISO-8859-15"));
         assert_eq!(iconv_encoding("CP1251"), iconv_encoding("windows-1251"));
     }

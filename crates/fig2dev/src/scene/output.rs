@@ -161,8 +161,8 @@ pub struct Page<'a> {
     pub meta: Meta<'a>,
     /// EPS pictures to embed in EPS output, by the picture's file name.
     pub embedded_eps: &'a BTreeMap<String, EmbeddedEps>,
-    /// The whole-figure comments (written by the LaTeX box).
-    pub comments: &'a [String],
+    /// The whole-figure comments, as read (written by the LaTeX box).
+    pub comments: &'a [Vec<u8>],
     /// Bitmap resolution at 100 % (pixels per inch).
     pub dpi: f64,
     /// Bitmap smoothing: `None` antialiased, else genbitmaps' `-S`
@@ -301,7 +301,7 @@ pub fn write_with_notes(
             page.pdf_minor,
             page.embedded_eps,
         ),
-        ExportFormat::LatexBox => latex_box::to_box(page.comments, bounds, scale).into_bytes(),
+        ExportFormat::LatexBox => latex_box::to_box(page.comments, bounds, scale),
         ExportFormat::Png
         | ExportFormat::Gif
         | ExportFormat::Jpeg
