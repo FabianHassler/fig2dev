@@ -206,14 +206,14 @@ checksum = "3296eb97d869113eaf148a6bdf01884e90b3828ad7ae2340b0f93362fc158611"
 
 [[package]]
 name = "fig2dev-rs"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "fig2dev-rs-lib",
 ]
 
 [[package]]
 name = "fig2dev-rs-lib"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "encoding_rs",
  "figbase",
@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "figbase"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "epaint_default_fonts",
  "fontdb",
@@ -1004,7 +1004,7 @@ checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
 
 [[package]]
 name = "xtask"
-version = "0.9.3"
+version = "0.9.4"
 
 [[package]]
 name = "yoke"

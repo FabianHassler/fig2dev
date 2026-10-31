@@ -249,11 +249,12 @@ impl Devices {
 fn flush_messages(io: &mut Io, ctx: &mut fig2dev::Ctx) {
     let last = ctx.messages.len().saturating_sub(1);
     for (i, m) in ctx.messages.drain(..).enumerate() {
-        if i == last && ctx.partial_line {
-            errp!(io, "{m}");
-        } else {
-            errln!(io, "{m}");
+        // Messages that show a text's bytes carry them as `message_view`.
+        let mut bytes = fig2dev::util::textconvert::message_bytes(&m);
+        if !(i == last && ctx.partial_line) {
+            bytes.push(b'\n');
         }
+        let _ = io.err.write_all(&bytes);
     }
 }
 
