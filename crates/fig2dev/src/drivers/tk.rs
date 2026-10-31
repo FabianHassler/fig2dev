@@ -1283,21 +1283,17 @@ impl Driver for Tk {
         } else {
             fprintf!(
                 out,
-                "set xfigCanvas [canvas .c -width {}i -height {}i]",
+                "set xfigCanvas [canvas .c -width {}i -height {}i",
                 fp(wid, 2),
                 fp(ht, 2)
             );
+            // gentk.c wrote `-bg` after the `]`, an error in Tcl, and divided
+            // the 16-bit channels by 255 (white gave #101101101).
             if ctx.bgspec {
                 let b = ctx.background;
-                fprintf!(
-                    out,
-                    " -bg #{:02x}{:02x}{:02x}",
-                    b.red / 255,
-                    b.green / 255,
-                    b.blue / 255
-                );
+                fprintf!(out, " -bg #{:02x}{:02x}{:02x}", b.red >> 8, b.green >> 8, b.blue >> 8);
             }
-            out.puts("\n");
+            out.puts("]\n");
             out.puts("$xfigCanvas config -xscrollincrement 1p -yscrollincrement 1p\n");
             if !self.full_page {
                 out.puts("# Shift canvas by lower of bounding box\n");

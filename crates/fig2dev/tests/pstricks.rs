@@ -1,7 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! fig2dev's `pstricks` driver against output of the real fig2dev 3.2.9a
 //! (the expected texts were written by `/opt/homebrew/bin/fig2dev -L
-//! pstricks`, with the options each test gives).
+//! pstricks`, with the options each test gives). User colours are divided
+//! by 255 here (genpstricks.c divides by 256).
 
 mod pic_common;
 mod tex_common;
@@ -36,7 +37,7 @@ fn dashed_polylines_dots_and_arrows() {
 \pspolygon[linewidth=0.0318,linecolor=black,fillstyle=solid,fillcolor=black](5.1266,2.2479)(4.8787,2.3323)(4.8682,2.2057)
 \pspolygon[linewidth=0.0159,linestyle=dashed,dash=0.0953 0.0476 0.0318 0.0476,linejoin=1,linecolor=red](6.3966,6.1637)(7.6666,6.1637)(7.6666,4.8937)(6.3966,4.8937)
 \psframe[linewidth=0.0476,linestyle=dashed,dash=0.0953 0.0318 0.0953 0.0318 0.0953 0.0318,linejoin=2,linecolor=black](6.3966,2.3537)(7.6666,3.6237)
-\newrgbcolor{usrclri}{0.0703 0.2031 0.3359}%
+\newrgbcolor{usrclri}{0.0706 0.2039 0.3373}%
 \psline[linewidth=0.0159,linestyle=dashed,dash=0.0953 0.0238 0.0318 0.0238 0.0318 0.0238 0.0318 0.0238,linecolor=usrclri]{C-C}(0.0466,1.0837)(5.1266,1.0837)
 \psdots[dotsize=0.0000](0.2582,0.4487)
 \psdots[dotsize=0.0079](0.2582,0.0254)
@@ -87,9 +88,9 @@ fn filled_and_hatched_polygons() {
 \pspolygon[linewidth=0.0159,linecolor=black,fillstyle=solid,fillcolor=black](0.0254,7.0104)(2.5654,7.0104)(2.5654,5.7404)(0.0254,5.7404)
 \newgray{grayx}{0.5000}%
 \pspolygon[linewidth=0.0159,linecolor=red,fillstyle=solid,fillcolor=grayx](2.9887,7.0104)(5.5287,7.0104)(5.5287,5.7404)(2.9887,5.7404)
-\newrgbcolor{usrclr}{0.9961 0.5000 0.0000}%
+\newrgbcolor{usrclr}{1.0000 0.5020 0.0000}%
 \pspolygon[linewidth=0.0159,linecolor=red,fillstyle=solid,fillcolor=usrclr](5.9521,7.0104)(8.4921,7.0104)(8.4921,5.7404)(5.9521,5.7404)
-\newrgbcolor{usrclristxxv}{0.3027 0.4023 0.5020}%
+\newrgbcolor{usrclristxxv}{0.3029 0.4029 0.5029}%
 \pspolygon[linewidth=0.0159,linecolor=red,fillstyle=solid,fillcolor=usrclristxxv](0.0254,5.1054)(2.5654,5.1054)(2.5654,3.8354)(0.0254,3.8354)
 \newrgbcolor{greenistxxxv}{0.7500 0.8900 0.7500}%
 \pspolygon[linewidth=0.0159,linecolor=red,fillstyle=solid,fillcolor=greenistxxxv](2.9887,5.1054)(5.5287,5.1054)(5.5287,3.8354)(2.9887,3.8354)

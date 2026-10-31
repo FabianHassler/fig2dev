@@ -212,14 +212,19 @@ impl Driver for Dxf {
             fprintf!(out, "  8\n{:3}\n", e.depth);
             fprintf!(out, " 10\n{}\n", fmt_g(f64::from(e.center.x) * k, 4));
             fprintf!(out, " 20\n{}\n", cf(self.ydxf(e.center.y), 4));
-            // The end of the major axis, relative to the centre.
-            fprintf!(out, " 11\n{}\n", cf(f64::from(e.radiuses.x) * k, 4));
-            out.puts(" 21\n0.0\n");
-            fprintf!(
-                out,
-                " 40\n {}\n",
-                fmt_g(f64::from(e.radiuses.y) / f64::from(e.radiuses.x), 6)
-            );
+            // The end of the major axis, relative to the centre, turned by
+            // the ellipse's angle (counter-clockwise, as DXF's y is upwards),
+            // and the minor/major ratio, at most 1. gendxf.c always took the
+            // x radius as the major axis and ignored the angle.
+            let (rx, ry) = (f64::from(e.radiuses.x), f64::from(e.radiuses.y));
+            let (major, ratio, angle) = if ry > rx {
+                (ry, rx / ry, e.angle + std::f64::consts::FRAC_PI_2)
+            } else {
+                (rx, if rx > 0.0 { ry / rx } else { 1.0 }, e.angle)
+            };
+            fprintf!(out, " 11\n{}\n", cf(major * angle.cos() * k, 4));
+            fprintf!(out, " 21\n{}\n", cf(major * angle.sin() * k, 4));
+            fprintf!(out, " 40\n {}\n", fmt_g(ratio, 6));
             out.puts(" 41\n0.0\n 42\n6.28318\n");
         }
         Ok(())
@@ -284,7 +289,7 @@ impl Driver for Dxf {
                 out.puts("  0\nSEQEND\n");
             }
             T_ARC_BOX => {
-                // YCOORD truncated to int, compared with raw y, as in C.
+                // In DXF's y (upwards); C compared YCOORD with the raw y.
                 let yc = |y: i32| (self.paperheight - f64::from(y)) as i32;
                 let (mut llx, mut urx) = (p.x, p.x);
                 let (mut lly, mut ury) = (yc(p.y), yc(p.y));
@@ -295,10 +300,10 @@ impl Driver for Dxf {
                     if urx < r.x {
                         urx = r.x;
                     }
-                    if lly > r.y {
+                    if lly > yc(r.y) {
                         lly = yc(r.y);
                     }
-                    if ury < r.y {
+                    if ury < yc(r.y) {
                         ury = yc(r.y);
                     }
                 }
@@ -317,7 +322,8 @@ impl Driver for Dxf {
                     line_entity(out, l, x0 + dx, y1, x1 - dx, y1);
                 }
             }
-            T_PIC_BOX => ctx.warn("Warning: Pictures not supported in IBMGL language"),
+            // gendxf.c says "IBMGL", copied from genibmgl.c.
+            T_PIC_BOX => ctx.warn("Warning: Pictures not supported in DXF language"),
             _ => {}
         }
         Ok(())
