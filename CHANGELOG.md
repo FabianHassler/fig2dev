@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Hardening (B11), checked against fig2dev 3.2.9a built from source: `-L box` writes the whole-figure comments as `print_comments("% ", ...)` does (`%  text ` with the comment's bytes as read; was `% text`): 0 differences on the 2,554 sample figures (1,041 before). Pictures compressed as `.zip`, `.bz2`, `.bz` or `.xz` are read through `unzip -p`, `bunzip2 -c` and `unxz -c` as `open_stream` does (run directly, no shell; not on wasm). `-E ascii` (and `us-ascii`, `ANSI_X3.4-1968`, ...) converts strictly as iconv: text stops at the first byte beyond 0x7f with "Error converting string ...: Illegal byte sequence"; that message and the "Unable to convert" one show the text's bytes as they are (also non-UTF-8 bytes); a charset name with blanks is refused as iconv does. Left: netpbm's palette order for PPM, TIFF, XPM and GIF pictures (first use here), `-E utf-16` and the multibyte charsets' error positions.
+
 ## 0.9.3 — 2026-10-28
 
 - On crates.io as `figbase`, `fig2dev-rs-lib` (the library, still `fig2dev::…` in code) and `fig2dev-rs` (`cargo install fig2dev-rs` installs the `fig2dev` program); the name `fig2dev` stays the C program's. Packages renamed: `fig2dev` → `fig2dev-rs-lib`, `fig2dev-cli` → `fig2dev-rs`. The packages carry the licence texts (MIT, Apache-2.0 and xfig's notice, SPDX `(MIT OR Apache-2.0) AND Xfig`), keywords and the README.
