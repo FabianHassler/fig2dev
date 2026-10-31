@@ -73,7 +73,7 @@ fn fills_ellipse_and_arc() {
 {\renewcommand{\dashlinestretch}{30}
 \begin{picture}(3020,3036)(0,-10)
 \put(612.000,609.000){\arc{1200.000}{6.2832}{9.4248}}
-\blacken\path(1230.047,486.630)(1212.000,609.000)(1170.338,492.534)(1230.047,486.630)
+\blacken\path(1230.011,486.625)(1212.000,609.000)(1170.304,492.546)(1230.011,486.625)
 \put(2412,2409){\whiten\ellipse{1200}{600}}
 \put(2412,2409){\ellipse{1200}{600}}
 \texture{aaffffff ffaaaaaa aaffffff ffaaaaaa aaffffff ffaaaaaa aaffffff ffaaaaaa 
@@ -101,7 +101,7 @@ fn fills_ellipse_and_arc() {
 	(994.454,146.692)(1049.381,198.272)(1097.410,256.329)
 	(1137.784,319.948)(1169.866,388.125)(1193.150,459.786)
 	(1207.269,533.800)(1212.000,609.000)
-\blacken\drawline(1230.047,486.630)(1212.000,609.000)(1170.338,492.534)(1230.047,486.630)
+\blacken\drawline(1230.011,486.625)(1212.000,609.000)(1170.304,492.546)(1230.011,486.625)
 \put(2412,2409){\oval(1200,600)}
 \texture{aaffffff ffaaaaaa aaffffff ffaaaaaa aaffffff ffaaaaaa aaffffff ffaaaaaa 
 	aaffffff ffaaaaaa aaffffff ffaaaaaa aaffffff ffaaaaaa aaffffff ffaaaaaa 

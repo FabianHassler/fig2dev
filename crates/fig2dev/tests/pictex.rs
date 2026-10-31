@@ -82,7 +82,8 @@ fn dashed_box() {
 fn arc_and_filled_circle() {
     let (out, msgs, _) = run("pictex", ARC_AND_DOT, &[]).unwrap();
     assert!(out.contains(
-        r"\plot  3.747 24.384  3.810 24.130  3.873 24.384 /
+        // The arrowhead as the SVG driver draws it (genpictex.c turned it over).
+        r"\plot  3.873 23.876  3.810 24.130  3.747 23.876 /
 %
 \circulararc 180.000 degrees from  1.270 24.130 center at  2.540 24.130
 }%

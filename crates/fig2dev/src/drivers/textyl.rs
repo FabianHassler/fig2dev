@@ -380,12 +380,14 @@ impl Driver for Textyl {
         let (sx, sy) = (f64::from(a.point[0].x), f64::from(a.point[0].y));
         let (ex, ey) = (f64::from(a.point[2].x), f64::from(a.point[2].y));
         if a.type_ == T_OPEN_ARC && a.thickness != 0 {
+            // Fig's y-down coordinates, as arc_tangent wants them; gentextyl.c
+            // flipped the direction as if they were y-up.
             if let Some(ar) = &a.for_arrow {
-                let (x, y) = arc_tangent(cx, cy, ex, ey, a.direction == 0);
+                let (x, y) = arc_tangent(cx, cy, ex, ey, a.direction != 0);
                 self.draw_arrow_head(out, x, y, ex, ey, ar.ht, ar.wid);
             }
             if let Some(ar) = &a.back_arrow {
-                let (x, y) = arc_tangent(cx, cy, sx, sy, a.direction != 0);
+                let (x, y) = arc_tangent(cx, cy, sx, sy, a.direction == 0);
                 self.draw_arrow_head(out, x, y, sx, sy, ar.ht, ar.wid);
             }
         }

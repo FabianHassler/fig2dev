@@ -155,7 +155,8 @@ fn texts_as_utf16_with_fonts() {
     assert!(b.windows(10).any(|w| w == utf16("Times").as_slice()));
     // the bytes of an UTF-8 text, each sign-extended: 0xc3 0xa9 -> ffc3 ffa9
     assert!(b.windows(4).any(|w| w == [0xc3, 0xff, 0xa9, 0xff]));
-    assert_eq!((fnv(&b), b.len()), (0x3082_460a_4966_708f, 2136));
+    // fig2dev 3.2.9a's bytes but the turned texts' bounds (genemf.c's were wrong).
+    assert_eq!((fnv(&b), b.len()), (0x8e27_2129_df83_f1bf, 2136));
 }
 
 #[test]

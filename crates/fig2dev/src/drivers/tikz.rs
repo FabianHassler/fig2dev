@@ -1486,7 +1486,9 @@ impl Driver for Tikz {
             a.fill_color,
             a.fill_style,
             a.style_val,
-            a.type_ != T_OPEN_ARC && !(a.for_arrow.is_some() && a.back_arrow.is_some()),
+            // An open arc has ends unless both carry arrows (gentikz.c
+            // tested `!=`, so open arcs lost their cap style, wedges got it).
+            a.type_ == T_OPEN_ARC && !(a.for_arrow.is_some() && a.back_arrow.is_some()),
             a.cap_style,
         );
         let radprec = usize::from(f64::from(round(rad)) != f64::from(round_mul(10., rad)) / 10.);
@@ -1554,7 +1556,11 @@ impl Driver for Tikz {
                 e.radiuses.y
             );
             if e.angle != 0.0 {
-                fprintf!(out, ",rotate=+{:.0}];\n", Cf(e.angle * DEG_RAD));
+                // A tenth of a degree where needed, as for texts (gentikz.c
+                // rounded to whole degrees).
+                let a = e.angle * DEG_RAD;
+                let aprec = usize::from(round_mul(a, 10.) != round(a).wrapping_mul(10));
+                fprintf!(out, ",rotate=+{:.*}];\n", aprec, Cf(a));
             } else {
                 out.puts("];\n");
             }

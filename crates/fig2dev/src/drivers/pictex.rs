@@ -571,12 +571,15 @@ impl Driver for Pictex {
         let ey = convy(f64::from(a.point[2].y) / ppi);
 
         if a.type_ == T_OPEN_ARC && a.thickness != 0 {
+            // arc_tangent works in y-down coordinates; these are y-up, so
+            // the direction flips (genpictex.c passed it unflipped and drew
+            // arc arrowheads pointing the wrong way).
             if let Some(ar) = &a.for_arrow {
-                let (x, y) = arc_tangent(cx, cy, ex, ey, a.direction != 0);
+                let (x, y) = arc_tangent(cx, cy, ex, ey, a.direction == 0);
                 self.draw_arrow_head(out, x, y, ex, ey, ar.ht / ppi, ar.wid / ppi);
             }
             if let Some(ar) = &a.back_arrow {
-                let (x, y) = arc_tangent(cx, cy, sx, sy, a.direction == 0);
+                let (x, y) = arc_tangent(cx, cy, sx, sy, a.direction != 0);
                 self.draw_arrow_head(out, x, y, sx, sy, ar.ht / ppi, ar.wid / ppi);
             }
         }
@@ -610,15 +613,20 @@ impl Driver for Pictex {
 
     fn ellipse(&mut self, ctx: &mut Ctx, out: &mut Out, e: &Ellipse) -> Result<(), String> {
         let ppi = ctx.ppi;
+        // A turned ellipse as a polygon, a quarter turn by swapping the
+        // radii (genpictex.c drew every ellipse unturned).
+        let Some((erx, ery)) = e.axis_radii() else {
+            return self.line(ctx, out, &e.to_polygon(72));
+        };
         print_comments(out, "% ", &e.comments, "");
         out.puts("%\n% Fig ELLIPSE\n%\n");
         self.set_linewidth(out, ctx, e.thickness);
         self.set_style(out, e.style, e.style_val);
         self.color.set_color(out, ctx, e.pen_color);
 
-        let (rx, ry) = (f64::from(e.radiuses.x), f64::from(e.radiuses.y));
+        let (rx, ry) = (f64::from(erx), f64::from(ery));
         let (ccx, ccy) = (f64::from(e.center.x), f64::from(e.center.y));
-        if e.fill_style == BLACK_FILL && e.radiuses.x == e.radiuses.y {
+        if e.fill_style == BLACK_FILL && erx == ery {
             if ctx.mag * rx > 0.5 * ppi / 72.0 * f64::from(MAXBLACKDIAM) {
                 ctx.warn(format!(
                     "Too big black filled circle substituted by a diameter of {MAXBLACKDIAM}pt"

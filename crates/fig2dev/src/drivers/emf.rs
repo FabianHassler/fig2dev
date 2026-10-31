@@ -1229,16 +1229,9 @@ impl Emf {
             self.arc_arrow_adjust(&mut p2, &mut arwp2, a, r, a.for_arrow.as_ref(), -1.);
             // the inner product: if negative the arc is probably very short
             // and hidden in the arrow heads
-            let ip = a.point[0]
-                .x
-                .wrapping_sub(a.point[2].x)
-                .wrapping_mul(p0.x.wrapping_sub(p2.x))
-                .wrapping_add(
-                    a.point[0]
-                        .y
-                        .wrapping_sub(a.point[2].y)
-                        .wrapping_mul(p0.y.wrapping_sub(p2.y)),
-                );
+            // In i64: genemf.c's int overflowed beyond about 38 inches.
+            let d = |a: i32, b: i32| i64::from(a) - i64::from(b);
+            let ip = d(a.point[0].x, a.point[2].x) * d(p0.x, p2.x) + d(a.point[0].y, a.point[2].y) * d(p0.y, p2.y);
             if ip < 0 {
                 skip = true;
             }
@@ -1283,13 +1276,13 @@ impl Emf {
         ]);
     }
 
-    /// `cwarc`: whether the arc is a clockwise arc.
+    /// `cwarc`: whether the arc is a clockwise arc (in i64: genemf.c's int
+    /// overflowed on large drawings and turned arcs round).
     fn cwarc(a: &Arc) -> bool {
-        let x1 = a.point[1].x.wrapping_sub(a.point[0].x);
-        let y1 = a.point[1].y.wrapping_sub(a.point[0].y);
-        let x2 = a.point[2].x.wrapping_sub(a.point[1].x);
-        let y2 = a.point[2].y.wrapping_sub(a.point[1].y);
-        x1.wrapping_mul(y2).wrapping_sub(y1.wrapping_mul(x2)) > 0
+        let d = |a: i32, b: i32| i64::from(a) - i64::from(b);
+        let (x1, y1) = (d(a.point[1].x, a.point[0].x), d(a.point[1].y, a.point[0].y));
+        let (x2, y2) = (d(a.point[2].x, a.point[1].x), d(a.point[2].y, a.point[1].y));
+        x1 * y2 - y1 * x2 > 0
     }
 
     // ---- shapes ----
@@ -1716,13 +1709,17 @@ impl Emf {
             ty => self.msg(format!("Unsupported fig text type {ty}.")),
         }
         let (xf, yf) = (f64::from(x), f64::from(y));
-        let rnd = |v: f64| round(v);
-        let bbx = [
-            rnd((-t.size).mul_add(sin_t, xf)),
-            rnd((-t.size).mul_add(cos_t, yf)),
-            rnd(t.length.mul_add(cos_t, xf)),
-            rnd(t.length.mul_add(sin_t, yf)),
-        ];
+        // The bounds of the turned text: baseline from (x, y) along
+        // (cos, -sin) (y is down), its height across. genemf.c took the
+        // end's y with the wrong sign and did not order the corners.
+        let (ex, ey) = (t.length.mul_add(cos_t, xf), (-t.length).mul_add(sin_t, yf));
+        let (hx, hy) = (-t.size * sin_t, -t.size * cos_t);
+        let corners = [(xf, yf), (ex, ey), (xf + hx, yf + hy), (ex + hx, ey + hy)];
+        let (mut l, mut tp, mut r, mut b) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for (cx, cy) in corners {
+            (l, r, tp, b) = (l.min(cx), r.max(cx), tp.min(cy), b.max(cy));
+        }
+        let bbx = [round(l), round(tp), round(r), round(b)];
         match t.type_ {
             T_LEFT_JUSTIFIED => self.textalign(TA_LEFT | TA_BASELINE),
             T_CENTER_JUSTIFIED => self.textalign(TA_CENTER | TA_BASELINE),

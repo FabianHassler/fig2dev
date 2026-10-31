@@ -41,41 +41,9 @@ const NUM_PS_FONTS: i32 = 35;
 const ARROW_INDENT_DIST: f64 = 0.8;
 const ARROW_POINT_DIST: f64 = 1.2;
 
-/// The standard colours, as fig2dev's `float` table (`stdcols`).
-const STDCOLS: [[f32; 3]; NUM_STD_COLS] = [
-    [0.0, 0.0, 0.0],
-    [0.0, 0.0, 1.0],
-    [0.0, 1.0, 0.0],
-    [0.0, 1.0, 1.0],
-    [1.0, 0.0, 0.0],
-    [1.0, 0.0, 1.0],
-    [1.0, 1.0, 0.0],
-    [1.0, 1.0, 1.0],
-    [0.0, 0.0, 0.56],
-    [0.0, 0.0, 0.69],
-    [0.0, 0.0, 0.82],
-    [0.53, 0.81, 1.0],
-    [0.0, 0.56, 0.0],
-    [0.0, 0.69, 0.0],
-    [0.0, 0.82, 0.0],
-    [0.0, 0.56, 0.56],
-    [0.0, 0.69, 0.69],
-    [0.0, 0.82, 0.82],
-    [0.56, 0.0, 0.0],
-    [0.69, 0.0, 0.0],
-    [0.82, 0.0, 0.0],
-    [0.56, 0.0, 0.56],
-    [0.69, 0.0, 0.69],
-    [0.82, 0.0, 0.82],
-    [0.5, 0.19, 0.0],
-    [0.63, 0.25, 0.0],
-    [0.75, 0.38, 0.0],
-    [1.0, 0.5, 0.5],
-    [1.0, 0.63, 0.63],
-    [1.0, 0.75, 0.75],
-    [1.0, 0.88, 0.88],
-    [1.0, 0.84, 0.0],
-];
+/// The standard colours: xfig's 8-bit values (gencgm.c truncated its float
+/// table, `.69 * 255` to 175 instead of 176).
+const STDCOLS: [figbase::color::Rgb; 32] = figbase::color::STANDARD_COLORS;
 
 /// Fig pattern → CGM hatch index 1–6 (0: none) (`map_pattern`).
 const MAP_PATTERN: [i32; 22] = [0, 0, 0, 4, 3, 6, 0, 0, 1, 2, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -246,11 +214,7 @@ fn conv_color(ctx: &Ctx, color: i32) -> i32 {
 fn getrgb(ctx: &mut Ctx, color: i32) -> (i32, i32, i32) {
     let color = color.max(0);
     if let Some(c) = STDCOLS.get(color as usize).filter(|_| color < NUM_STD_COLS as i32) {
-        return (
-            (f64::from(c[0]) * 255.0) as i32,
-            (f64::from(c[1]) * 255.0) as i32,
-            (f64::from(c[2]) * 255.0) as i32,
-        );
+        return (i32::from(c.r), i32::from(c.g), i32::from(c.b));
     }
     let found = ctx
         .user_col_indx
@@ -1041,8 +1005,7 @@ impl Driver for Cgm {
         out.puts("  colrmode indexed;\n");
         out.puts("  colrtable 1");
         for c in STDCOLS {
-            let v = |x: f32| (f64::from(x) * 255.0) as i32;
-            fprintf!(out, "\n\t{} {} {}", v(c[0]), v(c[1]), v(c[2]));
+            fprintf!(out, "\n\t{} {} {}", c.r, c.g, c.b);
         }
         for u in &ctx.user_colors {
             fprintf!(out, "\n\t{} {} {}", u.r, u.g, u.b);
