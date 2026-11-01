@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Reader: a text keeps its leading blanks, as xfig's `f_read.c` reads them (the rest of the line after the separating blank; Fig 2.x to 3.2). C fig2dev's `"%d %n"` skips all blanks, so `4 ... 1200    abc\001` gave `abc` there and gives `   abc` here. Intended difference from fig2dev 3.2.9a: figures with such texts (indented text, a blank-only text) now differ from the C output by those blanks in the text drivers, PostScript, SVG and PDF. Fig 1.3 is unchanged (xfig's `%d %[^\n]` skips them too). The editing reader already did this.
+
 ## 0.9.6 — 2026-11-01
 
 - `-E utf-16`: converts like iconv's `UTF-16` (a byte order mark decides, big endian without one; a lone last byte is dropped; the text ends at an unpaired surrogate) instead of failing on the paper size: the header's strings (version, paper size) are no longer decoded with `-E` (fig2dev converts texts only). A text with ASCII bytes only is never converted, whatever `-E` says (`conv_non_ascii`). Same as fig2dev 3.2.9a (libiconv) for BOM, big-endian default and surrogates, except: C also converts the text's terminating NUL, so every complete UTF-16 text got "The input string ... prematurely terminated." and an odd one an extra U+E400 character; neither is copied. glibc's iconv takes the host's byte order without a mark; this port always takes big endian. Not done: UTF-32/UCS-2/UCS-4, the "prematurely terminated" message for a real lone byte, and the EMF driver's EUC locale texts and fonts (`LANG=ja...`, `zh_CN`, `ko`; unrelated to `-E`).

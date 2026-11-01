@@ -136,11 +136,12 @@ fn editing_mode_keeps_splines_blanks_and_the_background_transparency() {
         "{}\n4 0 0 50 -1 0 12 0.0000 4 135 405 600 600   two\\001\n3 4 0 1 0 7 50 -1 -1 0.000 0 0 0 3\n\t 0 0 600 600 1200 0\n\t 0.000 1.000 0.000\n",
         TOP.replace("-2\n", "-1\n").trim_end()
     );
-    // fig2dev: the spline becomes a line, the text loses its blanks.
+    // fig2dev: the spline becomes a line; the text keeps its blanks beyond the
+    // first, as xfig reads them (C drops them all).
     let (r, _, ctx) = read(&src);
     let c = r.unwrap();
     assert_eq!((c.splines.len(), c.lines.len()), (0, 1));
-    assert_eq!(c.texts[0].cstring, "two");
+    assert_eq!(c.texts[0].cstring, "  two");
     assert_eq!(ctx.header_transparent, -1);
     // An editor: the spline stays, the text keeps its blanks beyond one.
     let mut ctx = Ctx {

@@ -601,3 +601,45 @@ fn sources_dir() -> std::path::PathBuf {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../old"))
 }
+
+/// Text keeps its leading blanks, as xfig's f_read.c reads them: only the
+/// first blank (the field separator) is dropped. C fig2dev's `"%d %n"`
+/// drops all of them (an intended difference).
+#[test]
+fn text_keeps_its_leading_blanks() {
+    let t = |s: &str| {
+        let c = ok_with(
+            &top(&format!("4 0 0 50 -1 0 12 0.0000 4 135 405 1200 1200 {s}\\001\n")),
+            &[],
+        );
+        (c.texts[0].cstring.clone(), c.texts[0].raw.clone())
+    };
+    assert_eq!(t("   abc").0, "   abc");
+    // Four blanks after the number: three belong to the string.
+    let c = ok_with(&top("4 0 0 50 -1 0 12 0.0000 4 135 405 1200 1200    abc\\001\n"), &[]);
+    assert_eq!(c.texts[0].cstring, "   abc");
+    assert_eq!(c.texts[0].raw, b"   abc");
+    // One blank (the separator): no leading blank in the string.
+    assert_eq!(t("abc").0, "abc");
+    assert_eq!(t(" abc").0, " abc");
+    // Only blanks.
+    assert_eq!(t("   ").0, "   ");
+    // A second line starting with blanks keeps them too.
+    let c = ok_with(&top("4 0 0 50 -1 0 12 0.0000 4 135 405 1200 1200  a\n  b\\001\n"), &[]);
+    assert_eq!(c.texts[0].cstring, " a\n  b");
+    // Trailing blanks stay.
+    assert_eq!(t("abc  ").0, "abc  ");
+}
+
+/// The older format (2.x, strings ended by ^A) keeps leading blanks as
+/// xfig does; version 1.3 reads `%d %[^\n]` in xfig, which skips them.
+#[test]
+fn old_format_text_keeps_its_leading_blanks() {
+    let c = ok_with(
+        "#FIG 2\n1200 2\n4 2 0 0 1 0 0 0 6 110 376 639 5    Text\u{1}\u{1}\n",
+        &[],
+    );
+    assert_eq!(c.texts[0].cstring, "   Text");
+    let c = ok_with("#FIG 2\n1200 2\n4 2 0 0 1 0 0 0 6 110 376 639 5 Text\u{1}\u{1}\n", &[]);
+    assert_eq!(c.texts[0].cstring, "Text");
+}

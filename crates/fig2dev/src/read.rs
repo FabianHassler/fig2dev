@@ -1515,13 +1515,11 @@ impl<'a> Reader<'a, '_> {
         (t.type_, t.color, t.depth, t.pen, t.font) = (f.i(0), f.i(1), f.i(2), f.i(3), f.i(4));
         (t.size, t.angle, t.flags, t.height, t.length) = (f.f(5), f.f(6), f.i(7), f.f(8), f.f(9));
         (t.base_x, t.base_y) = (f.i(10), f.i(11));
-        if self.ctx.editing {
-            // xfig skips the first blank only.
-            if sc.peek() == Some(b' ') {
-                sc.lit(b' ');
-            }
-        } else {
-            sc.skip_ws();
+        // As xfig's f_read.c: the leading blanks belong to the string, only
+        // the first one (the field separator) is dropped. C fig2dev's
+        // `"%d %n"` skips them all, which loses the blanks (not copied).
+        if sc.peek() == Some(b' ') {
+            sc.lit(b' ');
         }
         let start = sc.rest();
         let v30 = self.ctx.v30_flag;
