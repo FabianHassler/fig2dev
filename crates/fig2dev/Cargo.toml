@@ -31,6 +31,8 @@ smallvec = "1"
 encoding_rs = "0.8"
 png = { version = "0.18", default-features = false }
 gif = { version = "0.14", default-features = false, features = ["std"] }
+tiff = { version = "0.11", default-features = false }
+weezl = "0.1"
 
 [dev-dependencies]
 fontdb.workspace = true

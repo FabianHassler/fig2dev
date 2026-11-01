@@ -905,7 +905,20 @@ fn read_raster(
     limits.max_image_height = Some(MAX_SIDE);
     limits.max_alloc = Some(MAX_PIXELS * 8);
     reader.limits(limits);
-    let img = reader.decode().map_err(|e| e.to_string())?;
+    let img = match reader.decode() {
+        Ok(img) => img,
+        Err(e) if t == PicType::Tiff => {
+            // `image` reads no palette TIFFs (netpbm's `pnmtotiff` writes
+            // them); C reads every TIFF through `tifftopnm`
+            let Some((w, h, pixels)) = palette_tiff(data)? else {
+                return Err(e.to_string());
+            };
+            fill_indexed(ctx, pic, (w, h), pixels, None, None);
+            pic.subtype = P_PCX;
+            return Ok((0, 0));
+        }
+        Err(e) => return Err(e.to_string()),
+    };
     check_size(u64::from(img.width()), u64::from(img.height()))?;
     if t == PicType::Tiff {
         // `ppmtopcx` / `tifftopnm | ppmtopcx`: the pixels without an alpha
@@ -920,6 +933,110 @@ fn read_raster(
     fill_from_rgba(ctx, pic, rgba.width(), rgba.height(), rgba.as_raw())?;
     pic.subtype = t.subtype();
     Ok((0, 0))
+}
+
+/// Width, height and the pixels row by row.
+type RgbPixels = (u32, u32, Vec<[u8; 3]>);
+
+/// A palette (PhotometricInterpretation 3) TIFF as RGB pixels, or `None`
+/// for any other TIFF: one sample of 1, 2, 4 or 8 bits in strips, without
+/// compression, with LZW, PackBits or Deflate. The 16-bit colour map is
+/// scaled to 8 bits as `tifftopnm` scales it.
+fn palette_tiff(data: &[u8]) -> Result<Option<RgbPixels>, String> {
+    use tiff::tags::Tag;
+    let bad = |e: tiff::TiffError| format!("Bad TIFF format: {e}");
+    let mut d = tiff::decoder::Decoder::new(Cursor::new(data)).map_err(bad)?;
+    let num = |d: &mut tiff::decoder::Decoder<Cursor<&[u8]>>, tag: Tag, default: u32| -> Result<u32, String> {
+        Ok(match d.find_tag(tag).map_err(bad)? {
+            Some(v) => v.into_u32().map_err(bad)?,
+            None => default,
+        })
+    };
+    if num(&mut d, Tag::PhotometricInterpretation, 0)? != 3 {
+        return Ok(None);
+    }
+    let w = num(&mut d, Tag::ImageWidth, 0)?;
+    let h = num(&mut d, Tag::ImageLength, 0)?;
+    let bits = num(&mut d, Tag::BitsPerSample, 1)?;
+    let compression = num(&mut d, Tag::Compression, 1)?;
+    let rows_per_strip = num(&mut d, Tag::RowsPerStrip, h)?.clamp(1, h.max(1));
+    if w == 0 || h == 0 || num(&mut d, Tag::SamplesPerPixel, 1)? != 1 || !matches!(bits, 1 | 2 | 4 | 8) {
+        return Err("Bad TIFF format: unsupported palette image".into());
+    }
+    if num(&mut d, Tag::Predictor, 1)? != 1 || d.find_tag(Tag::TileWidth).map_err(bad)?.is_some() {
+        return Err("Bad TIFF format: unsupported palette image layout".into());
+    }
+    check_size(u64::from(w), u64::from(h))?;
+    let map = d.get_tag_u16_vec(Tag::ColorMap).map_err(bad)?;
+    let n = 1usize << bits;
+    if map.len() < 3 * n {
+        return Err("Bad TIFF format: short colour map".into());
+    }
+    let scale = |v: u16| ((u32::from(v) * 255 + 32_767) / 65_535) as u8;
+    let palette: Vec<[u8; 3]> = (0..n)
+        .map(|i| {
+            let at = |k: usize| map.get(k * n + i).copied().unwrap_or(0);
+            [scale(at(0)), scale(at(1)), scale(at(2))]
+        })
+        .collect();
+    let offsets = d.get_tag_u64_vec(Tag::StripOffsets).map_err(bad)?;
+    let counts = d.get_tag_u64_vec(Tag::StripByteCounts).map_err(bad)?;
+    let row_bytes = (w as usize * bits as usize).div_ceil(8);
+    let mut pixels = Vec::with_capacity(w as usize * h as usize);
+    for (k, (off, len)) in offsets.iter().zip(&counts).enumerate() {
+        let start = usize::try_from(*off).map_err(|e| e.to_string())?;
+        let end = start.saturating_add(usize::try_from(*len).map_err(|e| e.to_string())?);
+        let raw = data
+            .get(start..end.min(data.len()))
+            .ok_or("Bad TIFF format: strip outside the file")?;
+        let rows = (h as usize)
+            .saturating_sub(k * rows_per_strip as usize)
+            .min(rows_per_strip as usize);
+        let want = rows * row_bytes;
+        let strip = match compression {
+            1 => raw.to_vec(),
+            5 => weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8)
+                .decode(raw)
+                .map_err(|e| format!("Bad TIFF format: {e}"))?,
+            8 | 32946 => miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(raw, want)
+                .map_err(|e| format!("Bad TIFF format: {e:?}"))?,
+            32773 => unpack_bits(raw, want),
+            c => return Err(format!("Bad TIFF format: compression {c} in a palette image")),
+        };
+        for row in strip.chunks(row_bytes).take(rows) {
+            for x in 0..w as usize {
+                let bit = x * bits as usize;
+                let byte = row.get(bit / 8).copied().unwrap_or(0);
+                let shift = 8 - bits as usize - bit % 8;
+                let i = usize::from(byte >> shift) & (n - 1);
+                pixels.push(palette.get(i).copied().unwrap_or([0; 3]));
+            }
+        }
+    }
+    // A short file: the missing rows black, as `tifftopnm` leaves them
+    pixels.resize(w as usize * h as usize, [0; 3]);
+    Ok(Some((w, h, pixels)))
+}
+
+/// PackBits (TIFF compression 32773), at most `limit` bytes.
+fn unpack_bits(src: &[u8], limit: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(limit);
+    let mut i = 0;
+    while i < src.len() && out.len() < limit {
+        let n = src.get(i).copied().unwrap_or(0) as i8;
+        i += 1;
+        if n >= 0 {
+            let len = n as usize + 1;
+            out.extend_from_slice(src.get(i..(i + len).min(src.len())).unwrap_or_default());
+            i += len;
+        } else if n != -128 {
+            let b = src.get(i).copied().unwrap_or(0);
+            out.extend(std::iter::repeat_n(b, (1 - i32::from(n)) as usize));
+            i += 1;
+        }
+    }
+    out.truncate(limit);
+    out
 }
 
 /// libpng's fixed-point gamma arithmetic (pngrtran.c, pngset.c): values in
@@ -2297,6 +2414,79 @@ mod tests {
             read_bitmap_file(b"#define a_width 99999999\n#define a_height 99999999\nstatic char a_bits[] = {")
                 .is_none()
         );
+    }
+
+    /// A little-endian 3 x 1 palette TIFF of 4 bits: pixels 1, 2, 3 (red,
+    /// green, blue), with `compression` and its strip bytes.
+    fn palette_tiff_file(compression: u16, strip: &[u8]) -> Vec<u8> {
+        let entries: [(u16, u16, u32, u32); 10] = [
+            (256, 3, 1, 3),
+            (257, 3, 1, 1),
+            (258, 3, 1, 4),
+            (259, 3, 1, u32::from(compression)),
+            (262, 3, 1, 3),
+            (273, 4, 1, 0), // strip offset, set below
+            (277, 3, 1, 1),
+            (278, 3, 1, 1),
+            (279, 4, 1, strip.len() as u32),
+            (320, 3, 48, 0), // colour map offset, set below
+        ];
+        let ifd_len = 2 + entries.len() * 12 + 4;
+        let map_at = 8 + ifd_len as u32;
+        let strip_at = map_at + 96;
+        let mut out = b"II*\0\x08\0\0\0".to_vec();
+        out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        for (tag, kind, count, value) in entries {
+            let value = match tag {
+                273 => strip_at,
+                320 => map_at,
+                _ => value,
+            };
+            out.extend_from_slice(&tag.to_le_bytes());
+            out.extend_from_slice(&kind.to_le_bytes());
+            out.extend_from_slice(&count.to_le_bytes());
+            out.extend_from_slice(&value.to_le_bytes());
+        }
+        out.extend_from_slice(&0u32.to_le_bytes());
+        for channel in 0..3 {
+            for i in 0..16u16 {
+                let v: u16 = if usize::from(i) == channel + 1 { 0xffff } else { 0 };
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        out.extend_from_slice(strip);
+        out
+    }
+
+    #[test]
+    fn palette_tiffs_read_as_tifftopnm() {
+        let want = vec![[255, 0, 0], [0, 255, 0], [0, 0, 255]];
+        let plain = palette_tiff_file(1, &[0x12, 0x30]);
+        assert_eq!(palette_tiff(&plain).unwrap(), Some((3, 1, want.clone())));
+        // PackBits: a literal run of two bytes
+        let packed = palette_tiff_file(32773, &[0x01, 0x12, 0x30]);
+        assert_eq!(palette_tiff(&packed).unwrap(), Some((3, 1, want)));
+        let mut pic = Pic::default();
+        read_raster(
+            &Ctx::default(),
+            &plain,
+            image::ImageFormat::Tiff,
+            PicType::Tiff,
+            &mut pic,
+        )
+        .unwrap();
+        assert_eq!(pic.bit_size, Point::new(3, 1));
+        assert_eq!(pic.subtype, P_PCX);
+        // a damaged one is an error, not a panic
+        assert!(read_raster(
+            &Ctx::default(),
+            &plain[..60],
+            image::ImageFormat::Tiff,
+            PicType::Tiff,
+            &mut pic
+        )
+        .is_err());
+        assert_eq!(unpack_bits(&[0xfe, 7, 0x00, 9], 10), vec![7, 7, 7, 9]);
     }
 
     #[test]
