@@ -391,6 +391,14 @@ impl<'a> Reader<'a, '_> {
         self.enc.decode(b)
     }
 
+    /// A string of the file's header or of a definition line (the version,
+    /// the paper size, a colour line in a message): fig2dev keeps the bytes
+    /// and converts only texts, comments and picture names (`-E utf-16`
+    /// must not turn the paper size into Chinese).
+    fn decode_header(&self, b: &[u8]) -> String {
+        Encoding::Latin1.decode(b)
+    }
+
     /// `round(THICK_SCALE)`.
     fn thick_factor(&self) -> i32 {
         crate::round(f64::from(self.ctx.thick_scale))
@@ -570,7 +578,7 @@ impl<'a> Reader<'a, '_> {
             .find(|(a, b)| a != b)
             .is_some_and(|(a, b)| a > b);
         if newer {
-            let v = self.decode(version);
+            let v = self.decode_header(version);
             self.msg(format!(
                 "Fig file format ({v}) newer than this version of fig2dev ({}), exiting",
                 crate::gendev::PACKAGE_VERSION
@@ -579,7 +587,7 @@ impl<'a> Reader<'a, '_> {
         }
         let c = &*self.ctx;
         if !(c.v2_flag || c.v21_flag || c.v30_flag || c.v32_flag) && !buf.starts_with(b"#FIG 1.4") {
-            let v = self.decode(version);
+            let v = self.decode_header(version);
             self.msg(format!("Cannot determine fig file format from string '{v}'."));
             return Err(-1);
         }
@@ -628,11 +636,11 @@ impl<'a> Reader<'a, '_> {
                 if !self.ctx.paperspec {
                     let name = line.split(|&c| c == b' ').next().unwrap_or_default();
                     if name.len() > PAPERSZ_MAX {
-                        let (line_no, name) = (self.line_no, self.decode(name));
+                        let (line_no, name) = (self.line_no, self.decode_header(name));
                         self.msg(format!("Invalid paper size specification at line {line_no}: {name}"));
                         return Err(-1);
                     }
-                    self.ctx.papersize = self.decode(name);
+                    self.ctx.papersize = self.decode_header(name);
                 }
 
                 let line = self.header_line("magnification")?;
@@ -789,7 +797,7 @@ impl<'a> Reader<'a, '_> {
             Some((c, s.hex2()?, s.hex2()?, s.hex2()?))
         })();
         let Some((c, r, g, b)) = parsed else {
-            let l = self.decode(line);
+            let l = self.decode_header(line);
             self.msg(format!("Invalid color definition at line {line_no}: {l}."));
             return;
         };
@@ -812,7 +820,7 @@ impl<'a> Reader<'a, '_> {
                 hi - 1
             ));
         } else {
-            let l = self.decode(line);
+            let l = self.decode_header(line);
             self.msg(format!(
                 "Invalid color definition at line {line_no}: {l}, color values must be between 0 through 255."
             ));

@@ -340,6 +340,9 @@ pub enum Encoding {
     Utf8,
     Latin1,
     Latin2,
+    /// iconv's `UTF-16`: a byte order mark decides the byte order, big
+    /// endian without one (libiconv's default; glibc takes the host's).
+    Utf16,
     /// Any other charset iconv knows (`-E KOI8-R`, `ISO-8859-7`, ...).
     Other(&'static encoding_rs::Encoding),
 }
@@ -369,6 +372,7 @@ impl Encoding {
             .collect();
         match key.as_str() {
             "utf8" | "0" => Some(Encoding::Utf8),
+            "utf16" => Some(Encoding::Utf16),
             "iso88592" | "iso88592:1987" | "latin2" | "l2" | "2" => Some(Encoding::Latin2),
             "iso88591" | "iso88591:1987" | "latin1" | "l1" | "1" => Some(Encoding::Latin1),
             _ => None,
@@ -378,7 +382,13 @@ impl Encoding {
     /// Decode `bytes` to Unicode. Bytes that are not valid UTF-8 in a
     /// UTF-8 file are taken as ISO-8859-1.
     pub fn decode(self, bytes: &[u8]) -> String {
+        // fig2dev converts only a text with a byte beyond ASCII
+        // (`conv_non_ascii`), so ASCII stays as it is whatever `-E` says.
+        if bytes.is_ascii() {
+            return bytes.iter().map(|&b| char::from(b)).collect();
+        }
         match self {
+            Encoding::Utf16 => decode_utf16(bytes),
             Encoding::Latin1 => bytes.iter().map(|&b| char::from(b)).collect(),
             Encoding::Latin2 => bytes.iter().map(|&b| latin2(b)).collect(),
             Encoding::Other(e) => e.decode_without_bom_handling(bytes).0.into_owned(),
@@ -392,6 +402,25 @@ impl Encoding {
             }
         }
     }
+}
+
+/// iconv's `UTF-16`: the byte order mark (removed) or big endian; a lone
+/// trailing byte is dropped, and the text ends at an unpaired surrogate
+/// (iconv stops there with an error).
+fn decode_utf16(bytes: &[u8]) -> String {
+    let (little, body) = match bytes {
+        [0xff, 0xfe, rest @ ..] => (true, rest),
+        [0xfe, 0xff, rest @ ..] => (false, rest),
+        _ => (false, bytes),
+    };
+    let units = body.as_chunks::<2>().0.iter().map(|&c| {
+        if little {
+            u16::from_le_bytes(c)
+        } else {
+            u16::from_be_bytes(c)
+        }
+    });
+    char::decode_utf16(units).map_while(Result::ok).collect()
 }
 
 /// ISO-8859-2, 0xA0..=0xFF (the Unicode mapping of the standard).
