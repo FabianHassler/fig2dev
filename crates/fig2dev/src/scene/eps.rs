@@ -34,6 +34,8 @@ struct Ctx {
     lf: Vec<GlyphSet>,
     /// Installed fonts drawn as outlines (their subset can't be written).
     lf_outline: std::collections::BTreeSet<String>,
+    /// `-j` and the locale's composite fonts.
+    composite: Option<super::composite::Composite>,
 }
 
 /// The glyph sets of the installed fonts a scene uses, and the fonts whose
@@ -282,6 +284,15 @@ fn needs_utf8(t: &TextPrim) -> bool {
     !matches!(font_name(t), "Symbol" | "ZapfDingbats") && t.text.chars().any(|c| u32::from(c) > 0xff)
 }
 
+/// Whether any text goes beyond ASCII (genps's `needs_cmap`): `-j` adds its
+/// prologue only then.
+pub(crate) fn needs_cmap(scene: &Scene) -> bool {
+    scene.prims.iter().any(|p| match p {
+        Prim::Text(t) => !t.text.is_ascii() && !matches!(font_name(t), "Symbol" | "ZapfDingbats"),
+        _ => false,
+    })
+}
+
 /// The fonts that need a `-UTF-8` composite font (`note_text_needing_cmap`).
 fn utf8_fonts(scene: &Scene) -> std::collections::BTreeSet<&'static str> {
     scene
@@ -493,7 +504,42 @@ fn outline_text(c: &mut Ctx, t: &TextPrim) {
     c.out.push_str("fill\n");
 }
 
+/// A text in a composite font (`genps_text`, `-j`).
+fn composite_text(c: &mut Ctx, t: &TextPrim, comp: super::composite::Composite, bold: bool) {
+    let size = super::font_px(t.size) * c.k;
+    let (x, y) = c.p(t.origin);
+    c.rgb(t.color);
+    let _ = writeln!(
+        c.out,
+        "gsave {} {} translate {} rotate /Composite{} findfont {} scalefont setfont",
+        n(x),
+        n(y),
+        n(t.angle.to_degrees()),
+        if bold { "Bold" } else { "Roman" },
+        n(size)
+    );
+    for (i, line) in t.text.split('\n').enumerate() {
+        let dy = -(i as f64) * size * figbase::text::LINE_SPACING;
+        let (s, _) = comp.ps_string(line);
+        let just = match t.justify {
+            Justify::Left => String::new(),
+            Justify::Center => format!("{s} stringwidth pop -2 div 0 rmoveto "),
+            Justify::Right => format!("{s} stringwidth pop neg 0 rmoveto "),
+        };
+        let _ = writeln!(c.out, "0 {} moveto {}{} show", n(dy), just, s);
+    }
+    c.out.push_str("grestore\n");
+}
+
 fn text(c: &mut Ctx, t: &TextPrim) {
+    if let Some(comp) = c.composite {
+        if let Some(bold) = super::composite::font_of(t.postscript, t.font) {
+            if t.local_font.is_none() {
+                composite_text(c, t, comp, bold);
+                return;
+            }
+        }
+    }
     if local_text(c, t) {
         return;
     }
@@ -811,6 +857,7 @@ pub fn to_eps(
         date: meta.date.as_ref().map(|d| d.iso()),
         lf: Vec::new(),
         lf_outline: Default::default(),
+        composite: meta.composite.filter(|_| needs_cmap(scene)),
     };
     (c.lf, c.lf_outline) = plan_local_fonts(scene);
     let (w, h) = (b.width() * k, b.height() * k);
@@ -828,6 +875,9 @@ pub fn to_eps(
     utf8_cmap(&mut c.out, &fonts);
     prolog(&mut c.out);
     utf8_composefonts(&mut c.out, &fonts);
+    if let Some(comp) = c.composite {
+        c.out.push_str(comp.prolog);
+    }
     type42_fonts(&mut c.out, &c.lf);
     c.out.push_str("%%EndProlog\n%%Page: 1 1\nsave\n");
     if let Some(bg) = background {
@@ -867,11 +917,13 @@ pub fn to_ps(
         date: meta.date.as_ref().map(|d| d.iso()),
         lf: Vec::new(),
         lf_outline: Default::default(),
+        composite: meta.composite.filter(|_| needs_cmap(scene)),
     };
     (c.lf, c.lf_outline) = plan_local_fonts(scene);
     draw_prims(&mut c, scene, embeds);
     let body = std::mem::take(&mut c.out);
     let lf = std::mem::take(&mut c.lf);
+    let composite = c.composite;
     let (pw, ph) = (layout.width, layout.height);
     let o = &mut c.out;
     o.push_str("%!PS-Adobe-3.0\n");
@@ -892,6 +944,9 @@ pub fn to_ps(
     utf8_cmap(o, &fonts);
     prolog(o);
     utf8_composefonts(o, &fonts);
+    if let Some(comp) = composite {
+        o.push_str(comp.prolog);
+    }
     type42_fonts(o, &lf);
     o.push_str("%%EndProlog\n");
     for (i, (tx, ty)) in layout.pages.iter().enumerate() {

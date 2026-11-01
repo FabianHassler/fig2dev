@@ -114,7 +114,7 @@ const fn opt_for(
 }
 
 use Arg::{Color, Depths, Flag, Font, Number, Size, Text};
-use Support::{Planned, Ported};
+use Support::Ported;
 
 const ALL: &[&str] = &[];
 /// The PostScript driver's languages.
@@ -158,7 +158,7 @@ pub const OPTIONS: &[OptionSpec] = &[
     opt_for("ascii_preview", 'A', Flag, PS, PREVIEW, "add ASCII preview (produce EPSI file; not for PDF output)", Ported),
     opt_for("color_tiff_preview", 'C', Text, PS, PREVIEW, "add color TIFF preview (for Microsoft apps; not for PDF output)", Ported),
     opt_for("tiff_preview", 'T', Flag, PS, PREVIEW, "add monochrome TIFF preview (for Microsoft apps; not for PDF)", Ported),
-    opt("composite_fonts", 'j', Flag, PS, "enable composite fonts for japanese or korean text", Planned("B8")),
+    opt("composite_fonts", 'j', Flag, PS, "enable composite fonts for japanese or korean text", Ported),
     opt_for("bbox", 'B', Text, PS, EPS, "force width, height and origin in absolute coordinates (\"Wx [Wy X0 Y0]\")", Ported),
     opt_for("relative_bbox", 'R', Text, PS, EPS, "force width, height and origin in relative coordinates (\"Wx [Wy X0 Y0]\")", Ported),
     opt_for("center", 'c', Flag, PS, PAGE, "center figure on page", Ported),
@@ -339,6 +339,8 @@ pub struct DriverOptions {
     /// `-R` after it does not undo that, as in `genps.c`).
     pub bbox: Option<String>,
     pub bbox_absolute: bool,
+    /// `-j`: composite fonts for Japanese and Korean text (PostScript, EPS).
+    pub composite_fonts: bool,
 }
 
 impl Default for DriverOptions {
@@ -362,6 +364,7 @@ impl Default for DriverOptions {
             tiff_preview: None,
             bbox: None,
             bbox_absolute: false,
+            composite_fonts: false,
         }
     }
 }
@@ -465,6 +468,7 @@ pub fn parse_options(lang: &Language, items: &[(&str, OptionValue<'_>)]) -> Resu
             // The spacings are fig2dev's globals (`Ctx`), drawn by the driver.
             "grid" => {}
             "ascii_preview" => o.ascii_preview = flag()?,
+            "composite_fonts" => o.composite_fonts = flag()?,
             "tiff_preview" => {
                 if flag()? {
                     o.tiff_preview = Some(false);

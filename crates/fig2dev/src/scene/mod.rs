@@ -15,6 +15,7 @@
 mod afm;
 pub mod bitmaps;
 pub mod build;
+pub mod composite;
 pub mod eps;
 pub mod grid;
 pub mod latex_box;

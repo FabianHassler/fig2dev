@@ -136,6 +136,9 @@ pub struct Meta<'a> {
     pub mag: f64,
     /// The whole-figure comments (PostScript and SVG copy them).
     pub comments: &'a [String],
+    /// `-j`: PostScript and EPS set Japanese and Korean text in composite
+    /// fonts (the locale's prologue; see [`super::composite`]).
+    pub composite: Option<super::composite::Composite>,
 }
 
 /// Region covered by an export: the drawing's bounds plus the margin.

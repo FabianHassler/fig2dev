@@ -19,6 +19,7 @@ use crate::languages::{language, Language};
 use crate::object::{Arc, Compound, Ellipse, Line, Spline, Text};
 use crate::options::{option_spec, parse_options, Arg, DriverOptions, OptionValue, Support};
 use crate::scene::build::{file_scale, transparent_color, Builder, TextOptions};
+use crate::scene::composite;
 use crate::scene::grid::{grid_prims, GridSpec};
 use crate::scene::output::{write_with_notes, Meta};
 use crate::scene::page::paper;
@@ -533,6 +534,22 @@ impl Driver for SceneDriver {
         } else {
             None
         };
+        // -j (genps): the prologue of the locale, if a text needs it.
+        let composite = if o.composite_fonts
+            && matches!(self.format, ExportFormat::Eps)
+            && self.is_ps_family()
+            && !matches!(self.lang, "pdf" | "pspdf")
+            && crate::scene::eps::needs_cmap(&scene)
+        {
+            let locale = composite::locale_from_env(|k| std::env::var(k).ok());
+            let found = composite::for_locale(&locale, ctx.input_encoding.is_none());
+            if found.is_none() {
+                ctx.warn(format!("Unable to open postscript prologue file {locale}.ps"));
+            }
+            found
+        } else {
+            None
+        };
         let (bytes, notes) = write_with_notes(
             &scene,
             self.format,
@@ -551,6 +568,7 @@ impl Driver for SceneDriver {
                     magnification: if ctx.metric { ctx.mag * 76.2 / 80.0 } else { ctx.mag },
                     mag: ctx.mag,
                     comments: &self.comments,
+                    composite,
                 },
                 embedded_eps: &b.embedded_eps,
                 comments: &self.comments_raw,

@@ -609,3 +609,84 @@ fn border_may_be_negative_or_large() {
     assert_eq!(o.status.code(), Some(0), "{}", err(&o));
     assert_eq!(bbox(&o), "%%BoundingBox: 0 0 200072 200036");
 }
+
+/// A figure with EUC-JP text (two hiragana) in Times-Roman and Times-Bold.
+fn euc_fig() -> Vec<u8> {
+    let mut f = b"#FIG 3.2\nLandscape\nCenter\nInches\nLetter\n100.00\nSingle\n-2\n1200 2\n".to_vec();
+    f.extend_from_slice(b"4 0 0 50 -1 0 12 0.0 4 150 900 1200 1200 abc \xa4\xa2\xa4\xa4 de\\001\n");
+    f.extend_from_slice(b"4 0 0 50 -1 2 12 0.0 4 150 900 1200 2000 \xa4\xa2 bold\\001\n");
+    f.extend_from_slice(b"4 0 0 50 -1 16 12 0.0 4 150 900 1200 2800 \xa4\xa2 helv\\001\n");
+    f
+}
+
+fn run_j(args: &[&str], locale: &str, input: &[u8]) -> Output {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_fig2dev"))
+        .args(args)
+        .env_remove("LC_CTYPE")
+        .env_remove("LANG")
+        .env("LC_ALL", locale)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let _ = child.stdin.take().unwrap().write_all(input);
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn j_composite_fonts_in_an_euc_locale() {
+    for lang in ["ps", "eps"] {
+        let o = run_j(&["-L", lang, "-j"], "ja_JP.eucJP", &euc_fig());
+        assert!(o.status.success(), "{}", err(&o));
+        let s = String::from_utf8_lossy(&o.stdout);
+        assert!(s.contains("/FontName /CompositeRoman def"), "{lang}");
+        assert!(s.contains("% japanese.ps for fig2dev 3.2"));
+        assert!(s.contains("/CompositeRoman findfont"));
+        assert!(s.contains("(abc \\377\\001\\244\\242\\244\\244\\377\\000 de) show"));
+        assert!(s.contains("/CompositeBold findfont"));
+        assert!(s.contains("(\\377\\001\\244\\242\\377\\000 bold) show"));
+        // Helvetica stays an ordinary font.
+        assert!(s.contains("/Helvetica-iso findfont"));
+        assert_eq!(err(&o), "");
+    }
+    // Without -j nothing changes.
+    let o = run_j(&["-L", "eps"], "ja_JP.eucJP", &euc_fig());
+    assert!(!String::from_utf8_lossy(&o.stdout).contains("Composite"));
+}
+
+#[test]
+fn j_korean_locale_uses_korean_prolog() {
+    let o = run_j(&["-L", "eps", "-j"], "ko_KR.eucKR", &euc_fig());
+    let s = String::from_utf8_lossy(&o.stdout);
+    assert!(s.contains("% korean.ps"), "{s}");
+    assert!(s.contains("/CompositeRoman findfont"));
+}
+
+#[test]
+fn j_in_a_utf8_locale_warns_and_writes_plain_text() {
+    let o = run_j(&["-L", "eps", "-j"], "ja_JP.UTF-8", &euc_fig());
+    assert!(o.status.success());
+    assert!(
+        err(&o).contains("Unable to open postscript prologue file ja_JP.UTF-8.ps"),
+        "{}",
+        err(&o)
+    );
+    assert!(!String::from_utf8_lossy(&o.stdout).contains("Composite"));
+}
+
+#[test]
+fn j_without_non_ascii_text_adds_nothing() {
+    let o = run_j(&["-L", "eps", "-j"], "ja_JP.eucJP", FIG.as_bytes());
+    assert!(!String::from_utf8_lossy(&o.stdout).contains("Composite"));
+    assert_eq!(err(&o), "");
+}
+
+#[test]
+fn j_unicode_text_goes_into_the_locale_charset() {
+    let fig = "#FIG 3.2\n#encoding: UTF-8\nLandscape\nCenter\nInches\nLetter\n100.00\nSingle\n-2\n1200 2\n\
+4 0 0 50 -1 0 12 0.0 4 150 900 1200 1200 a\u{3042}b\\001\n";
+    let o = run_j(&["-L", "eps", "-j"], "ja_JP.eucJP", fig.as_bytes());
+    let s = String::from_utf8_lossy(&o.stdout);
+    assert!(s.contains("(a\\377\\001\\244\\242\\377\\000b) show"), "{s}");
+}
