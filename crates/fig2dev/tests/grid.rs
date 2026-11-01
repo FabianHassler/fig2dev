@@ -20,6 +20,13 @@ fn run(lang: &str, grid: Option<&str>) -> (Vec<u8>, Vec<String>) {
     ctx.font_size *= ctx.fontmag;
     let objects = readfp_fig(&mut ctx, FIG.as_bytes()).unwrap();
     let out = convert(&mut ctx, dev.as_mut(), &objects).unwrap().output;
+    // Without the clock: two runs a second apart must compare equal.
+    let dated = |l: &[u8]| l.starts_with(b"%%CreationDate") || l.windows(14).any(|w| w == b"CreationDate (");
+    let out = out
+        .split(|&b| b == b'\n')
+        .filter(|l| !dated(l))
+        .collect::<Vec<_>>()
+        .join(&b'\n');
     (out, std::mem::take(&mut ctx.messages))
 }
 
