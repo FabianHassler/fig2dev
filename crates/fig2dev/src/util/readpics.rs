@@ -622,18 +622,98 @@ fn index_pixels(pic: &mut Pic, pixels: Vec<[u8; 3]>, w: u32, h: u32) {
     set_size(pic, w, h);
 }
 
+/// netpbm's colour hash (`ppm_hashpixel`, `libppm`): ppmtopcx lists the
+/// colours of a picture with at most 256 of them in the order of this
+/// hash's buckets (`ppm_colorhashtocolorhist`), a bucket's colours newest
+/// first, and writes them as its palette.
+fn netpbm_bucket(c: [u32; 3]) -> u64 {
+    (u64::from(c[0]) * 1089 + u64::from(c[1]) * 33 + u64::from(c[2])) % 20023
+}
+
+/// What `ppmtopcx` makes of RGB pixels, as `_read_pcx` reads it back: a
+/// picture of at most 256 colours is an indexed bitmap whose colour map is
+/// netpbm's hash order, padded with black to what the PCX file's bit depth
+/// holds (2, 4, 8 or 16 entries, else 256; `numcols` counts them all);
+/// one with more colours is an RGB bitmap. `raw` holds the pixels' values
+/// at the PPM's own maxval (the hash is taken before ppmtopcx scales to
+/// 255); without it the pixels are the values. `-N` greys every entry of
+/// the colour map afterwards (`_read_pcx`), so entries may repeat.
+fn index_netpbm(ctx: &Ctx, pic: &mut Pic, pixels: Vec<[u8; 3]>, raw: Option<&[[u32; 3]]>, w: u32, h: u32) {
+    let n = pixels.len();
+    let mut slot: HashMap<[u8; 3], usize> = HashMap::new();
+    // The colours in the order of first use, with their hash buckets.
+    let mut first: Vec<([u8; 3], u64)> = Vec::new();
+    let mut by_use: Vec<u16> = Vec::with_capacity(n);
+    let mut too_many = false;
+    for (i, &c) in pixels.iter().enumerate() {
+        let k = match slot.get(&c) {
+            Some(&k) => k,
+            None => {
+                if first.len() == 256 {
+                    too_many = true;
+                    break;
+                }
+                let key = raw.and_then(|r| r.get(i).copied()).unwrap_or_else(|| c.map(u32::from));
+                slot.insert(c, first.len());
+                first.push((c, netpbm_bucket(key)));
+                first.len() - 1
+            }
+        };
+        by_use.push(k as u16);
+    }
+    if too_many {
+        pic.bitmap = pixels.concat();
+        pic.cmap = Vec::new();
+        pic.numcols = RGB_NUMCOLS;
+        set_size(pic, w, h);
+        return;
+    }
+    // Bucket order, newest first within a bucket.
+    let mut order: Vec<usize> = (0..first.len()).collect();
+    order.sort_by_key(|&k| (first.get(k).map_or(0, |f| f.1), std::cmp::Reverse(k)));
+    let mut rank = vec![0u8; first.len()];
+    for (r, &k) in order.iter().enumerate() {
+        if let Some(slot) = rank.get_mut(k) {
+            *slot = r as u8;
+        }
+    }
+    let size = match first.len() {
+        0..=2 => 2,
+        3..=4 => 4,
+        5..=8 => 8,
+        9..=16 => 16,
+        _ => 256,
+    };
+    let mut cmap: Vec<[u8; 3]> = order.iter().filter_map(|&k| first.get(k).map(|f| f.0)).collect();
+    cmap.resize(size, [0; 3]);
+    if ctx.grayonly {
+        for c in &mut cmap {
+            *c = [luminance(*c); 3];
+        }
+    }
+    pic.bitmap = by_use
+        .iter()
+        .map(|&k| rank.get(usize::from(k)).copied().unwrap_or(0))
+        .collect();
+    pic.numcols = size as i32;
+    pic.cmap = cmap;
+    set_size(pic, w, h);
+}
+
 /// Fills `pic` from RGB pixels the way the readers that go through
 /// `giftopnm | ppmtopcx` do, with the colour `transparent` standing for
 /// transparency: C finds it again in the colour map (the first entry with
 /// that colour, after `-N` has made the map grey) and keeps its index in
 /// `transp_cols`; if no entry has it, there is no transparency.
-fn fill_indexed(ctx: &Ctx, pic: &mut Pic, w: u32, h: u32, rgb: Vec<[u8; 3]>, transparent: Option<[u8; 3]>) {
-    let pixels: Vec<[u8; 3]> = if ctx.grayonly {
-        rgb.iter().map(|&c| [luminance(c); 3]).collect()
-    } else {
-        rgb
-    };
-    index_pixels(pic, pixels, w, h);
+fn fill_indexed(
+    ctx: &Ctx,
+    pic: &mut Pic,
+    (w, h): (u32, u32),
+    rgb: Vec<[u8; 3]>,
+    raw: Option<&[[u32; 3]]>,
+    transparent: Option<[u8; 3]>,
+) {
+    index_netpbm(ctx, pic, rgb, raw, w, h);
     pic.num_transp = NO_TRANSPARENCY;
     pic.transp_col = [0; 3];
     pic.transp_cols = Vec::new();
@@ -676,7 +756,7 @@ fn read_gif(ctx: &Ctx, data: &[u8], pic: &mut Pic) -> Result<(), String> {
         return Err("short image data".into());
     }
     let transparent = frame.transparent.map(colour);
-    fill_indexed(ctx, pic, w, h, rgb, transparent);
+    fill_indexed(ctx, pic, (w, h), rgb, None, transparent);
     // `_read_pcx` sets the subtype
     pic.subtype = P_PCX;
     Ok(())
@@ -747,6 +827,8 @@ fn read_ppm(ctx: &Ctx, data: &[u8], pic: &mut Pic) -> Result<(), String> {
     let rnd = maxval / 2;
     let scale = |v: u32| (v.wrapping_mul(255).wrapping_add(rnd)) / maxval;
     let mut samples: Vec<u8> = Vec::with_capacity(n);
+    // The values at the file's maxval, for netpbm's colour hash.
+    let mut raw_values: Vec<u32> = Vec::new();
     if magic == 6 {
         let wide = maxval >= 256;
         let bytes = data.get(pos..).unwrap_or(&[]);
@@ -755,23 +837,38 @@ fn read_ppm(ctx: &Ctx, data: &[u8], pic: &mut Pic) -> Result<(), String> {
         }
         if wide {
             for c in bytes.as_chunks::<2>().0.iter().take(n) {
-                let v = scale((u32::from(c[0]) << 8) + u32::from(c[1]));
-                samples.push(v.min(255) as u8);
+                let r = (u32::from(c[0]) << 8) + u32::from(c[1]);
+                raw_values.push(r);
+                samples.push(scale(r).min(255) as u8);
             }
         } else {
             // C scales the byte in place: a value above `maxval` wraps
             for &b in bytes.iter().take(n) {
+                if maxval != 255 {
+                    raw_values.push(u32::from(b));
+                }
                 samples.push(if maxval == 255 { b } else { scale(u32::from(b)) as u8 });
             }
         }
     } else {
         for _ in 0..n {
             let v = ppm_uint(data, &mut pos).ok_or_else(bad)?;
+            if maxval != 255 {
+                raw_values.push(v);
+            }
             samples.push(if maxval == 255 { v.min(255) } else { scale(v).min(255) } as u8);
         }
     }
     let pixels: Vec<[u8; 3]> = samples.as_chunks::<3>().0.to_vec();
-    fill_indexed(ctx, pic, width, height, pixels, None);
+    let raw: Vec<[u32; 3]> = raw_values.as_chunks::<3>().0.to_vec();
+    fill_indexed(
+        ctx,
+        pic,
+        (width, height),
+        pixels,
+        Some(&raw).filter(|r| !r.is_empty()).map(|r| r.as_slice()),
+        None,
+    );
     // `_read_pcx` sets the subtype
     pic.subtype = P_PCX;
     Ok(())
@@ -815,7 +912,7 @@ fn read_raster(
         // channel; `_read_pcx` sets the subtype
         let rgb = img.to_rgb8();
         let pixels: Vec<[u8; 3]> = rgb.as_raw().as_chunks::<3>().0.to_vec();
-        fill_indexed(ctx, pic, rgb.width(), rgb.height(), pixels, None);
+        fill_indexed(ctx, pic, (rgb.width(), rgb.height()), pixels, None, None);
         pic.subtype = P_PCX;
         return Ok((0, 0));
     }
@@ -1786,7 +1883,7 @@ pub fn read_xpm(ctx: &Ctx, data: &[u8], pic: &mut Pic) -> Result<(), String> {
     }
     // `xpmtoppm | ppmtopcx`: no transparency, and `_read_pcx` sets the subtype
     let rgb: Vec<[u8; 3]> = rgba.as_chunks::<4>().0.iter().map(|p| [p[0], p[1], p[2]]).collect();
-    fill_indexed(ctx, pic, w as u32, h as u32, rgb, None);
+    fill_indexed(ctx, pic, (w as u32, h as u32), rgb, None, None);
     pic.subtype = P_PCX;
     Ok(())
 }
@@ -2211,8 +2308,9 @@ mod tests {
         assert_eq!(pic.numcols, 2);
         // xpmtoppm | ppmtopcx: `None` is black, there is no transparency, and
         // `_read_pcx` sets the subtype
-        assert_eq!(pic.cmap, vec![[255, 0, 0], [0, 0, 0]]);
-        assert_eq!(pic.bitmap, vec![0, 1, 1, 0]);
+        // (netpbm's hash order: black first)
+        assert_eq!(pic.cmap, vec![[0, 0, 0], [255, 0, 0]]);
+        assert_eq!(pic.bitmap, vec![1, 0, 0, 1]);
         assert_eq!(pic.num_transp, NO_TRANSPARENCY);
         assert_eq!(pic.subtype, P_PCX);
         assert!(read_xpm(&Ctx::default(), b"/* XPM */ \"2 2 1 1\" \"a c red\" \"aa\"", &mut pic).is_err());
@@ -2488,9 +2586,10 @@ mod tests {
         let (r, pic) = read_bytes(&mut ctx, gif(2, 2, Some(1), &[0, 1, 2, 1]));
         assert!(r.is_ok());
         assert_eq!(pic.subtype, P_PCX);
-        assert_eq!((pic.num_transp, pic.numcols), (1, 3));
-        // colours in order of first use: red, green, blue; green is transparent
-        assert_eq!(pic.cmap, vec![[255, 0, 0], [0, 255, 0], [0, 0, 255]]);
+        assert_eq!((pic.num_transp, pic.numcols), (1, 4));
+        // ppmtopcx's order (blue, green, red, then the padding of a 2-bit
+        // palette); green is transparent
+        assert_eq!(pic.cmap, vec![[0, 0, 255], [0, 255, 0], [255, 0, 0], [0, 0, 0]]);
         assert_eq!(pic.transp_cols, vec![1]);
         let img = pic_to_raster(&pic).unwrap();
         assert_eq!(
@@ -2535,6 +2634,79 @@ mod tests {
         assert!(read_bitmap_file(&long).is_none());
     }
 
+    /// The colour map of `ppmtopcx`: netpbm's hash order, padded with
+    /// black to 16 entries (the values are from fig2dev 3.2.9a's PostScript
+    /// for the same picture, with and without `-N`).
+    #[test]
+    fn ppm_colour_map_is_in_netpbms_hash_order() {
+        let cols: [[u8; 3]; 12] = [
+            [255, 0, 0],
+            [0, 255, 0],
+            [0, 0, 255],
+            [10, 20, 30],
+            [255, 255, 255],
+            [0, 0, 0],
+            [200, 100, 50],
+            [1, 2, 3],
+            [128, 128, 128],
+            [77, 88, 99],
+            [250, 250, 0],
+            [5, 200, 150],
+        ];
+        let mut ppm = b"P6\n4 3\n255\n".to_vec();
+        ppm.extend(cols.iter().flatten());
+        let hex = |c: &[[u8; 3]]| -> Vec<String> {
+            c.iter()
+                .map(|c| c.iter().map(|v| format!("{v:02x}")).collect())
+                .collect()
+        };
+        let mut ctx = Ctx::default();
+        let (r, pic) = read_bytes(&mut ctx, ppm.clone());
+        assert!(r.is_ok());
+        assert_eq!(pic.numcols, 16);
+        assert_eq!(
+            hex(&pic.cmap).join(" "),
+            "000000 fafa00 0000ff c86432 010203 808080 ffffff 4d5863 00ff00 0a141e 05c896 ff0000 \
+             000000 000000 000000 000000"
+        );
+        // the pixels follow the map
+        assert_eq!(pic.bitmap.first().copied(), Some(11));
+        ctx.grayonly = true;
+        let (_, pic) = read_bytes(&mut ctx, ppm);
+        assert_eq!(
+            hex(&pic.cmap).join(" "),
+            "000000 dedede 1c1c1c 7c7c7c 010101 808080 fefefe 555555 969696 121212 888888 4c4c4c \
+             000000 000000 000000 000000"
+        );
+    }
+
+    /// The hash is taken at the file's maxval (ppmtopcx scales afterwards),
+    /// and the map has 2, 4, 8, 16 or 256 entries.
+    #[test]
+    fn ppm_hash_uses_the_file_maxval_and_the_map_size() {
+        let mut ctx = Ctx::default();
+        // maxval 15: raw (15,0,0) hashes to 16335, raw (0,15,5) to 500
+        let mut p6 = b"P6 2 1 15 ".to_vec();
+        p6.extend_from_slice(&[15, 0, 0, 0, 15, 5]);
+        let (_, pic) = read_bytes(&mut ctx, p6);
+        assert_eq!(pic.cmap, vec![[0, 255, 85], [255, 0, 0]]);
+        for (n, size) in [(1usize, 2i32), (3, 4), (5, 8), (9, 16), (17, 256)] {
+            let mut p6 = format!("P6 {n} 1 255 ").into_bytes();
+            for i in 0..n {
+                p6.extend_from_slice(&[i as u8, 1, 2]);
+            }
+            let (_, pic) = read_bytes(&mut ctx, p6);
+            assert_eq!((pic.numcols, pic.cmap.len() as i32), (size, size), "{n} colours");
+        }
+        // more than 256 colours: RGB
+        let mut p6 = b"P6 257 1 255 ".to_vec();
+        for i in 0..257u32 {
+            p6.extend_from_slice(&[(i >> 8) as u8, i as u8, 0]);
+        }
+        let (_, pic) = read_bytes(&mut ctx, p6);
+        assert_eq!((pic.numcols, pic.cmap.len()), (RGB_NUMCOLS, 0));
+    }
+
     #[test]
     fn ppm_reads_like_readppm_c() {
         let mut ctx = Ctx::default();
@@ -2549,10 +2721,10 @@ mod tests {
         let mut p6 = b"P6 1 1 65535 ".to_vec();
         p6.extend_from_slice(&[0x80, 0x00, 0xff, 0xff, 0x00, 0x00]);
         let (_, pic) = read_bytes(&mut ctx, p6);
-        assert_eq!(pic.cmap, vec![[128, 255, 0]]);
+        assert_eq!(pic.cmap, vec![[128, 255, 0], [0, 0, 0]]);
         // ASCII: values above maxval are clamped (the C fallback reader)
         let (_, pic) = read_bytes(&mut ctx, b"P3 1 1 7 0 7 9".to_vec());
-        assert_eq!(pic.cmap, vec![[0, 255, 255]]);
+        assert_eq!(pic.cmap, vec![[0, 255, 255], [0, 0, 0]]);
         // failures are "Bad PPM format"
         for bad in [
             &b"P6 1 1 255 \0\0"[..],
