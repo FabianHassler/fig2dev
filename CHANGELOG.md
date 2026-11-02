@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.9 — 2026-11-02
+
+- Bitmaps and the canvas draw ellipses, circles, arcs and rounded boxes from their exact curves instead of a flattening with a fixed step of 5 Fig units (61 lines for a circle three pixels across). tiny-skia flattens the curves for the output resolution: 190,000 small circles rasterise 2.5 to 3 times faster. Output differs only in edge pixels; arcs shortened by arrowheads still use the flattened line.
+
 ## 0.9.8 — 2026-11-02
 
 - PostScript and EPS: a JPEG picture draws in ghostscript. The driver wrote `W H sc` before the JPEG block, but the prolog never defined `sc` (genps's prolog has `/sc {scale} bind def`); it does now.
