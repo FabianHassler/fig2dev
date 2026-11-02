@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.8 — 2026-11-02
 
 - PostScript and EPS: a JPEG picture draws in ghostscript. The driver wrote `W H sc` before the JPEG block, but the prolog never defined `sc` (genps's prolog has `/sc {scale} bind def`); it does now.
 - TIFF: grey pictures of 2 and 4 bits (min-is-black and min-is-white) are read, as `tifftopnm` reads them (the `image` crate rejected them with "Bad TIFF format"). Samples are stretched to 0..255.
