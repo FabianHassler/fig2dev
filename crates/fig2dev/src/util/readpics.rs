@@ -550,7 +550,10 @@ fn background(ctx: &Ctx) -> [u8; 3] {
 }
 
 /// Fills `pic`'s bitmap from RGBA pixels: indexed with ≤ 256 colours, RGB
-/// otherwise; alpha composited over the background.
+/// otherwise; alpha composited over the background (the bitmap is opaque,
+/// no colour of it stands for transparency), and the straight pixels kept
+/// in [`Pic::rgba`] when some are transparent (unless `-N` or `-g` ask for
+/// the composite).
 pub fn fill_from_rgba(ctx: &Ctx, pic: &mut Pic, w: u32, h: u32, rgba: &[u8]) -> Result<(), String> {
     check_size(u64::from(w), u64::from(h))?;
     let n = (w as usize) * (h as usize);
@@ -571,15 +574,12 @@ pub fn fill_from_rgba(ctx: &Ctx, pic: &mut Pic, w: u32, h: u32, rgba: &[u8]) -> 
         };
         pixels.push(if ctx.grayonly { [luminance(c); 3] } else { c });
     }
-    pic.num_transp = if transparent { TRANSP_COLOR } else { NO_TRANSPARENCY };
-    pic.transp_col = if transparent {
-        if ctx.grayonly {
-            [luminance(bg); 3]
-        } else {
-            bg
-        }
+    pic.num_transp = NO_TRANSPARENCY;
+    pic.transp_col = [0; 3];
+    pic.rgba = if transparent && !ctx.grayonly && !ctx.bgspec {
+        rgba.get(..n * 4).map(<[u8]>::to_vec).unwrap_or_default()
     } else {
-        [0; 3]
+        Vec::new()
     };
 
     index_pixels(pic, pixels, w, h);
@@ -922,10 +922,49 @@ fn read_raster(
     check_size(u64::from(img.width()), u64::from(img.height()))?;
     if t == PicType::Tiff {
         // `ppmtopcx` / `tifftopnm | ppmtopcx`: the pixels without an alpha
-        // channel; `_read_pcx` sets the subtype
-        let rgb = img.to_rgb8();
-        let pixels: Vec<[u8; 3]> = rgb.as_raw().as_chunks::<3>().0.to_vec();
-        fill_indexed(ctx, pic, (rgb.width(), rgb.height()), pixels, None, None);
+        // channel; `_read_pcx` sets the subtype. A TIFF with an alpha
+        // channel keeps it (C drops it): the bitmap is composited over the
+        // background as for PNG, the straight pixels are in `Pic::rgba`.
+        let (w, h) = (img.width(), img.height());
+        if img.color().has_alpha() {
+            let mut rgba = img.to_rgba8().into_raw();
+            if tiff_premultiplied(data) {
+                for px in rgba.as_chunks_mut::<4>().0.iter_mut() {
+                    let a = u32::from(px[3]);
+                    if a != 0 && a != 255 {
+                        for v in px.iter_mut().take(3) {
+                            *v = ((u32::from(*v) * 255 + a / 2) / a).min(255) as u8;
+                        }
+                    }
+                }
+            }
+            let bg = background(ctx);
+            let mut transparent = false;
+            let pixels: Vec<[u8; 3]> = rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|px| {
+                    let a = u32::from(px[3]);
+                    if a == 255 {
+                        return [px[0], px[1], px[2]];
+                    }
+                    transparent = true;
+                    let mix = |v: u8, b: u8| ((u32::from(v) * a + u32::from(b) * (255 - a) + 127) / 255) as u8;
+                    [mix(px[0], bg[0]), mix(px[1], bg[1]), mix(px[2], bg[2])]
+                })
+                .collect();
+            fill_indexed(ctx, pic, (w, h), pixels, None, None);
+            pic.rgba = if transparent && !ctx.grayonly && !ctx.bgspec {
+                rgba
+            } else {
+                Vec::new()
+            };
+        } else {
+            let rgb = img.to_rgb8();
+            let pixels: Vec<[u8; 3]> = rgb.as_raw().as_chunks::<3>().0.to_vec();
+            fill_indexed(ctx, pic, (w, h), pixels, None, None);
+        }
         pic.subtype = P_PCX;
         return Ok((0, 0));
     }
@@ -933,6 +972,18 @@ fn read_raster(
     fill_from_rgba(ctx, pic, rgba.width(), rgba.height(), rgba.as_raw())?;
     pic.subtype = t.subtype();
     Ok((0, 0))
+}
+
+/// Whether a TIFF's extra sample is associated (premultiplied) alpha
+/// (ExtraSamples = 1); the `image` crate hands the samples over as stored.
+fn tiff_premultiplied(data: &[u8]) -> bool {
+    use tiff::tags::Tag;
+    let Ok(mut d) = tiff::decoder::Decoder::new(Cursor::new(data)) else {
+        return false;
+    };
+    d.get_tag_u32_vec(Tag::ExtraSamples)
+        .map(|v| v.first() == Some(&1))
+        .unwrap_or(false)
 }
 
 /// Width, height and the pixels row by row.
@@ -1494,7 +1545,54 @@ pub fn read_png(ctx: &Ctx, data: &[u8], pic: &mut Pic, msgs: &mut Vec<String>) -
     // (the canvas, PNG, PDF): C composites over the background at read time
     // (above), which makes a half transparent pixel opaque and pale.
     pic.rgba = Vec::new();
-    if has_alpha && !ctx.grayonly && !ctx.bgspec {
+    if !has_alpha && trns.is_some() && !ctx.grayonly && !ctx.bgspec {
+        // `tRNS`: exactly the palette entries with an alpha value, or the
+        // pixels of the `tRNS` colour (compared as stored, not after the
+        // gamma correction), are transparent; C turns every pixel of the
+        // visible colour transparent, or takes the alpha values for indices
+        let t = trns.as_deref().unwrap_or(&[]);
+        let tv = |i: usize| -> u32 {
+            if depth == 16 {
+                t.get(2 * i..2 * i + 2)
+                    .map_or(0, |b| u32::from(b[0]) << 8 | u32::from(b[1]))
+            } else {
+                u32::from(t.get(i).copied().unwrap_or(0))
+            }
+        };
+        let raw = |y: usize, k: usize| -> u32 {
+            if depth == 16 {
+                u32::from(raw16(y, k))
+            } else {
+                u32::from(sample(y, k))
+            }
+        };
+        let mut rgba = Vec::with_capacity(w.saturating_mul(h).saturating_mul(4));
+        for y in 0..h {
+            for x in 0..w {
+                match color {
+                    png::ColorType::Indexed => {
+                        let i = usize::from(sample(y, x));
+                        let c = pic.cmap.get(i).copied().unwrap_or([0; 3]);
+                        let a = t.get(i).copied().unwrap_or(255);
+                        rgba.extend_from_slice(&[c[0], c[1], c[2], a]);
+                    }
+                    png::ColorType::Grayscale => {
+                        let c = pic.cmap.get(usize::from(bitmap.get(y * w + x).copied().unwrap_or(0)));
+                        let c = c.copied().unwrap_or([0; 3]);
+                        let a = if raw(y, x) == tv(0) { 0 } else { 255 };
+                        rgba.extend_from_slice(&[c[0], c[1], c[2], a]);
+                    }
+                    _ => {
+                        let i = (y * w + x) * 3;
+                        let c = [0, 1, 2].map(|k| bitmap.get(i + k).copied().unwrap_or(0));
+                        let same = (0..3).all(|k| raw(y, x * 3 + k) == tv(k));
+                        rgba.extend_from_slice(&[c[0], c[1], c[2], if same { 0 } else { 255 }]);
+                    }
+                }
+            }
+        }
+        pic.rgba = rgba;
+    } else if has_alpha && !ctx.grayonly && !ctx.bgspec {
         let mut rgba = Vec::with_capacity(w.saturating_mul(h).saturating_mul(4));
         for y in 0..h {
             for x in 0..w {
@@ -2310,7 +2408,7 @@ pub fn pic_to_raster_as(pic: &Pic, genps: bool) -> Result<RasterImage, String> {
 }
 
 /// [`pic_to_raster_as`]; with `keep_alpha` a PNG's alpha channel stays
-/// (straight alpha, [`Pic::rgba`]) where C composites it over the
+/// (straight alpha, [`Pic::rgba`]: PNG, TIFF) where C composites it over the
 /// background.
 pub fn pic_to_raster_opts(pic: &Pic, genps: bool, keep_alpha: bool) -> Result<RasterImage, String> {
     let (w, h) = (pic.bit_size.x, pic.bit_size.y);
@@ -2322,8 +2420,9 @@ pub fn pic_to_raster_opts(pic: &Pic, genps: bool, keep_alpha: bool) -> Result<Ra
     let Some(n) = n else {
         return Err(format!("{}: bad picture size", pic.file));
     };
-    if keep_alpha && pic.subtype == P_PNG && pic.rgba.len() == n * 4 {
-        // a PNG with an alpha channel keeps it (C composites it over white)
+    if keep_alpha && pic.rgba.len() == n * 4 {
+        // a picture with an alpha channel (or per-pixel transparency) keeps
+        // it (C composites it over white)
         return Ok(RasterImage {
             width: w,
             height: h,
@@ -2575,6 +2674,27 @@ mod tests {
         ctx.grayonly = true;
         fill_from_rgba(&ctx, &mut pic, w, h, &rgba).unwrap();
         assert!(pic.numcols <= 256);
+    }
+
+    #[test]
+    fn fill_from_rgba_keeps_straight_alpha() {
+        let (w, h) = (3u32, 1u32);
+        // white (opaque), half transparent red, fully transparent blue
+        let rgba = [255, 255, 255, 255, 200, 0, 0, 128, 0, 0, 255, 0];
+        let mut pic = Pic::default();
+        fill_from_rgba(&Ctx::default(), &mut pic, w, h, &rgba).unwrap();
+        // the straight pixels, and an opaque bitmap composited over white:
+        // the opaque white pixel is not "the transparent colour"
+        assert_eq!(pic.rgba, rgba);
+        assert_eq!(pic.num_transp, NO_TRANSPARENCY);
+        let r = pic_to_raster_opts(&pic, false, true).unwrap();
+        assert_eq!(r.rgba, rgba);
+        let r = pic_to_raster_opts(&pic, true, false).unwrap();
+        assert!(r.rgba.chunks(4).all(|p| p[3] == 255));
+        assert_eq!(&r.rgba[..3], &[255, 255, 255]);
+        // opaque pictures have no alpha buffer
+        fill_from_rgba(&Ctx::default(), &mut pic, 1, 1, &[1, 2, 3, 255]).unwrap();
+        assert!(pic.rgba.is_empty());
     }
 
     fn crc32(data: &[u8]) -> u32 {

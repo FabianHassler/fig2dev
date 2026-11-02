@@ -290,19 +290,8 @@ pub(crate) fn base64(data: &[u8]) -> String {
 }
 
 pub(crate) fn image_png(img: &RasterImage) -> Option<Vec<u8>> {
-    let size = tiny_skia::IntSize::from_wh(img.width, img.height)?;
-    let mut data = img.rgba.clone();
-    let expected = (img.width as usize).checked_mul(img.height as usize)?.checked_mul(4)?;
-    if data.len() != expected {
-        return None;
-    }
-    for [r, g, b, a] in data.as_chunks_mut::<4>().0.iter_mut() {
-        let al = u16::from(*a);
-        *r = ((u16::from(*r) * al + 127) / 255) as u8;
-        *g = ((u16::from(*g) * al + 127) / 255) as u8;
-        *b = ((u16::from(*b) * al + 127) / 255) as u8;
-    }
-    tiny_skia::Pixmap::from_vec(data, size)?.encode_png().ok()
+    // straight alpha; RGB when nothing is transparent, best compression
+    super::raster::write_png(img.width, img.height, &img.rgba).ok()
 }
 
 /// Render a scene as an SVG document covering `bounds` (Fig units), sized
@@ -528,5 +517,48 @@ mod tests {
     #[test]
     fn escapes() {
         assert_eq!(esc("a<b>&\"c\u{1}"), "a&lt;b&gt;&amp;&quot;c");
+    }
+}
+
+#[cfg(test)]
+mod image_png_tests {
+    use super::*;
+
+    fn color_type(png_bytes: &[u8]) -> png::ColorType {
+        png::Decoder::new(std::io::Cursor::new(png_bytes))
+            .read_info()
+            .map(|r| r.info().color_type)
+            .unwrap()
+    }
+
+    #[test]
+    fn embedded_png_is_rgb_when_opaque_and_smaller() {
+        let (w, h) = (64u32, 64u32);
+        let rgba: Vec<u8> = (0..w * h)
+            .flat_map(|i| [(i * 7) as u8, (i / 3) as u8, (i % 5 * 40) as u8, 255])
+            .collect();
+        let img = RasterImage {
+            width: w,
+            height: h,
+            rgba: rgba.clone(),
+        };
+        let new = image_png(&img).unwrap();
+        assert_eq!(color_type(&new), png::ColorType::Rgb);
+        // the previous encoding: tiny-skia, RGBA, default compression
+        let size = tiny_skia::IntSize::from_wh(w, h).unwrap();
+        let old = tiny_skia::Pixmap::from_vec(rgba, size).unwrap().encode_png().unwrap();
+        assert!(new.len() < old.len(), "{} vs {}", new.len(), old.len());
+        // a transparent pixel keeps the alpha channel, straight
+        let img = RasterImage {
+            width: 2,
+            height: 1,
+            rgba: vec![10, 20, 30, 255, 40, 50, 60, 100],
+        };
+        let p = image_png(&img).unwrap();
+        assert_eq!(color_type(&p), png::ColorType::Rgba);
+        let mut r = png::Decoder::new(std::io::Cursor::new(&p)).read_info().unwrap();
+        let mut buf = vec![0; r.output_buffer_size().unwrap()];
+        r.next_frame(&mut buf).unwrap();
+        assert_eq!(buf, [10, 20, 30, 255, 40, 50, 60, 100]);
     }
 }
