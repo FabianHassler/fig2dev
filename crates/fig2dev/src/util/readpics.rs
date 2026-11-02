@@ -905,19 +905,24 @@ fn read_raster(
     limits.max_image_height = Some(MAX_SIDE);
     limits.max_alloc = Some(MAX_PIXELS * 8);
     reader.limits(limits);
-    let img = match reader.decode() {
+    let decoded = match plain_cmyk_jpeg(data, t) {
+        Some(r) => r,
+        None => reader.decode().map_err(|e| e.to_string()),
+    };
+    let img = match decoded {
         Ok(img) => img,
         Err(e) if t == PicType::Tiff => {
             // `image` reads no palette TIFFs (netpbm's `pnmtotiff` writes
-            // them); C reads every TIFF through `tifftopnm`
+            // them) and no 2 or 4 bit grey ones; C reads every TIFF
+            // through `tifftopnm`
             let Some((w, h, pixels)) = palette_tiff(data)? else {
-                return Err(e.to_string());
+                return Err(e);
             };
             fill_indexed(ctx, pic, (w, h), pixels, None, None);
             pic.subtype = P_PCX;
             return Ok((0, 0));
         }
-        Err(e) => return Err(e.to_string()),
+        Err(e) => return Err(e),
     };
     check_size(u64::from(img.width()), u64::from(img.height()))?;
     if t == PicType::Tiff {
@@ -974,6 +979,49 @@ fn read_raster(
     Ok((0, 0))
 }
 
+/// A four-component JPEG without an Adobe APP14 marker as RGB, or `None`
+/// for any other file. `readjpg.c` takes the samples of such a file as
+/// plain CMYK (ink amounts: only an Adobe marker says "inverted"), as the
+/// PostScript and PDF outputs do; the `image` crate's decoder always takes
+/// them as inverted, so the file is decoded to CMYK here and converted.
+fn plain_cmyk_jpeg(data: &[u8], t: PicType) -> Option<Result<image::DynamicImage, String>> {
+    use zune_jpeg::zune_core::{colorspace::ColorSpace, options::DecoderOptions};
+    if t != PicType::Jpeg {
+        return None;
+    }
+    let info = readjpg::analyze_jpeg(data).ok()?;
+    if info.components != 4 || info.adobe {
+        return None;
+    }
+    let (w, h) = (info.width.max(0) as u64, info.height.max(0) as u64);
+    if let Err(e) = check_size(w, h) {
+        return Some(Err(e));
+    }
+    let options = DecoderOptions::default()
+        .jpeg_set_out_colorspace(ColorSpace::CMYK)
+        .set_strict_mode(false)
+        .set_max_width(MAX_SIDE as usize)
+        .set_max_height(MAX_SIDE as usize);
+    let mut d = zune_jpeg::JpegDecoder::new_with_options(zune_jpeg::zune_core::bytestream::ZCursor::new(data), options);
+    let cmyk = match d.decode() {
+        Ok(v) => v,
+        Err(e) => return Some(Err(format!("{e:?}"))),
+    };
+    let n = (w * h) as usize;
+    if cmyk.len() < n * 4 {
+        return Some(Err("short JPEG data".into()));
+    }
+    let mut rgb = Vec::with_capacity(n * 3);
+    for px in cmyk.as_chunks::<4>().0.iter().take(n) {
+        let k = 255 - u32::from(px[3]);
+        for &c in &px[..3] {
+            rgb.push((((255 - u32::from(c)) * k + 127) / 255) as u8);
+        }
+    }
+    let img = image::RgbImage::from_raw(w as u32, h as u32, rgb)?;
+    Some(Ok(image::DynamicImage::ImageRgb8(img)))
+}
+
 /// Whether a TIFF's extra sample is associated (premultiplied) alpha
 /// (ExtraSamples = 1); the `image` crate hands the samples over as stored.
 fn tiff_premultiplied(data: &[u8]) -> bool {
@@ -989,8 +1037,8 @@ fn tiff_premultiplied(data: &[u8]) -> bool {
 /// Width, height and the pixels row by row.
 type RgbPixels = (u32, u32, Vec<[u8; 3]>);
 
-/// A palette (PhotometricInterpretation 3) TIFF as RGB pixels, or `None`
-/// for any other TIFF: one sample of 1, 2, 4 or 8 bits in strips, without
+/// A palette (PhotometricInterpretation 3) or grey (0, 1) TIFF as RGB
+/// pixels, or `None` for any other TIFF: one sample of 1, 2, 4 or 8 bits in strips, without
 /// compression, with LZW, PackBits or Deflate. The 16-bit colour map is
 /// scaled to 8 bits as `tifftopnm` scales it.
 fn palette_tiff(data: &[u8]) -> Result<Option<RgbPixels>, String> {
@@ -1003,7 +1051,8 @@ fn palette_tiff(data: &[u8]) -> Result<Option<RgbPixels>, String> {
             None => default,
         })
     };
-    if num(&mut d, Tag::PhotometricInterpretation, 0)? != 3 {
+    let photometric = num(&mut d, Tag::PhotometricInterpretation, 0)?;
+    if !matches!(photometric, 0 | 1 | 3) {
         return Ok(None);
     }
     let w = num(&mut d, Tag::ImageWidth, 0)?;
@@ -1018,18 +1067,29 @@ fn palette_tiff(data: &[u8]) -> Result<Option<RgbPixels>, String> {
         return Err("Bad TIFF format: unsupported palette image layout".into());
     }
     check_size(u64::from(w), u64::from(h))?;
-    let map = d.get_tag_u16_vec(Tag::ColorMap).map_err(bad)?;
     let n = 1usize << bits;
-    if map.len() < 3 * n {
-        return Err("Bad TIFF format: short colour map".into());
-    }
-    let scale = |v: u16| ((u32::from(v) * 255 + 32_767) / 65_535) as u8;
-    let palette: Vec<[u8; 3]> = (0..n)
-        .map(|i| {
-            let at = |k: usize| map.get(k * n + i).copied().unwrap_or(0);
-            [scale(at(0)), scale(at(1)), scale(at(2))]
-        })
-        .collect();
+    let palette: Vec<[u8; 3]> = if photometric == 3 {
+        let map = d.get_tag_u16_vec(Tag::ColorMap).map_err(bad)?;
+        if map.len() < 3 * n {
+            return Err("Bad TIFF format: short colour map".into());
+        }
+        let scale = |v: u16| ((u32::from(v) * 255 + 32_767) / 65_535) as u8;
+        (0..n)
+            .map(|i| {
+                let at = |k: usize| map.get(k * n + i).copied().unwrap_or(0);
+                [scale(at(0)), scale(at(1)), scale(at(2))]
+            })
+            .collect()
+    } else {
+        // Grey samples (MinIsWhite = 0, MinIsBlack = 1) stretched to 0..255
+        (0..n)
+            .map(|i| {
+                let i = if photometric == 0 { n - 1 - i } else { i };
+                let v = ((i * 255 + (n - 1) / 2) / (n - 1)) as u8;
+                [v; 3]
+            })
+            .collect()
+    };
     let offsets = d.get_tag_u64_vec(Tag::StripOffsets).map_err(bad)?;
     let counts = d.get_tag_u64_vec(Tag::StripByteCounts).map_err(bad)?;
     let row_bytes = (w as usize * bits as usize).div_ceil(8);

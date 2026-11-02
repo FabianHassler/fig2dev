@@ -33,6 +33,8 @@ png = { version = "0.18", default-features = false }
 gif = { version = "0.14", default-features = false, features = ["std"] }
 tiff = { version = "0.11", default-features = false }
 weezl = "0.1"
+# the JPEG decoder of `image`, used directly for CMYK files without an Adobe marker
+zune-jpeg = "0.5"
 
 [dev-dependencies]
 fontdb.workspace = true

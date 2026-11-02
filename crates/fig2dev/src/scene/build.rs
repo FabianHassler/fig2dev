@@ -444,6 +444,17 @@ impl Builder {
             } else {
                 load_picture(ctx, file)
             };
+            // A JPEG whose pixels can't be had (over the pixel cap, or a
+            // variant the decoder lacks) is a bad picture for every output
+            // that draws pixels, as a PNG that can't be read is; the
+            // PostScript writers pass the compressed data on undecoded, as
+            // genps does, and need no pixels.
+            let loaded = match loaded {
+                Ok(LoadedPicture::Jpeg { raster: None, .. }) if !self.text.ps_pictures => {
+                    Err(format!("{file}: Bad JPEG format"))
+                }
+                other => other,
+            };
             match loaded {
                 Ok(LoadedPicture::Raster(img)) => image = Some(Shared::new(img)),
                 Ok(LoadedPicture::Eps {

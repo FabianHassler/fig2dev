@@ -97,6 +97,8 @@ fn the_dct_data_is_passed_through() {
         assert!(msgs.is_empty(), "{msgs:?}");
         assert!(ps.contains("% Begin Imported JPEG File: a.jpg\n\n"));
         assert!(ps.contains(&format!("% JPEG image follows:\n{w} {h} sc\n%!PS-Adobe-3.0 EPSF-3.0\n")));
+        // genps's prolog defines the `sc` it uses
+        assert!(ps.contains("/sc {scale} bind def"));
         assert!(ps.contains("%%Creator: jpeg2ps by Thomas Merz in fig2dev 3.2.9a\n%%Title: a.jpg\n"));
         assert!(ps.contains(&format!("%%BoundingBox: 0 0 {w} {h}\n")));
         assert!(ps.contains(&format!("/Device{space} setcolorspace\n")));

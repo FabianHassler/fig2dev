@@ -741,7 +741,7 @@ const ISO_FONTS: [&str; 39] = [
 
 /// The procedure and font definitions of the prolog.
 fn prolog(out: &mut String) {
-    out.push_str("/m {moveto} bind def /l {lineto} bind def\n");
+    out.push_str("/m {moveto} bind def /l {lineto} bind def /sc {scale} bind def\n");
     out.push_str(
         "/isofont { findfont dup length dict begin {1 index /FID ne {def} {pop pop} ifelse} forall \
          /Encoding ISOLatin1Encoding def currentdict end definefont pop } bind def\n",

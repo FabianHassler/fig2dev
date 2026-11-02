@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- PostScript and EPS: a JPEG picture draws in ghostscript. The driver wrote `W H sc` before the JPEG block, but the prolog never defined `sc` (genps's prolog has `/sc {scale} bind def`); it does now.
+- TIFF: grey pictures of 2 and 4 bits (min-is-black and min-is-white) are read, as `tifftopnm` reads them (the `image` crate rejected them with "Bad TIFF format"). Samples are stretched to 0..255.
+- JPEG over the pixel cap (2^25 pixels, 5793 x 5793 and more): PNG, other bitmap and PDF output now say `FILE: Bad JPEG format` and draw the placeholder, as a PNG over the cap does (before: no message, a flat grey box in bitmaps and a garbled picture in PDF). PostScript and EPS still embed the compressed data without decoding it, as genps does, so they draw such a file without a message.
+- CMYK JPEG without an Adobe marker: bitmaps and the canvas take the samples as plain CMYK, as `readjpg.c`, PostScript and PDF do (the decoder of the `image` crate always took them as inverted, so such a file came out nearly black in PNG only). Files with the Adobe marker are unchanged (inverted in every output). The CMYK file is now decoded through `zune-jpeg`, the crate `image` already uses, as a direct dependency (no new crate in the tree).
+
 ## 0.9.7 — 2026-11-02
 
 - TIFF pictures with an alpha channel keep their transparency like PNG ones (C's `tifftopnm | ppmtopcx` drops it): blended with what lies below in the canvas, PDF (soft mask) and bitmaps, composited over white in PostScript and EPS. Associated (premultiplied, ExtraSamples 1) alpha is un-premultiplied first. Palette TIFFs and TIFFs without alpha are unchanged.
