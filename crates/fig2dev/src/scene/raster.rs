@@ -3,7 +3,7 @@
 use super::pattern::{coverage, PatternFrame};
 use super::{textcache, Fill, Prim, Rgba, Scene, Stroke, SubPath, TextPrim};
 use crate::util::pdfpic::PdfPicture;
-use figbase::geom::{Affine, Point, Rect};
+use figbase::geom::{Affine, Point, Rect, Seg};
 use figbase::image::RasterImage;
 use figbase::style::{CapStyle, JoinStyle, Justify};
 use figbase::text::PathOp;
@@ -75,6 +75,31 @@ fn f(v: f64) -> f32 {
 fn build_path(subpaths: &[SubPath], t: &Affine) -> Option<Path> {
     let mut pb = PathBuilder::new();
     for s in subpaths {
+        // The exact curves where there are some: tiny-skia flattens them for
+        // the device, where `pts` has a fixed step in Fig units (61 lines
+        // for a circle of three pixels).
+        if let Some(segs) = s.curve.as_deref().filter(|c| matches!(c.first(), Some(Seg::Move(_)))) {
+            for seg in segs {
+                match *seg {
+                    Seg::Move(p) => {
+                        let p = t.apply(p);
+                        pb.move_to(f(p.x), f(p.y));
+                    }
+                    Seg::Line(p) => {
+                        let p = t.apply(p);
+                        pb.line_to(f(p.x), f(p.y));
+                    }
+                    Seg::Cubic(a, b, c) => {
+                        let (a, b, c) = (t.apply(a), t.apply(b), t.apply(c));
+                        pb.cubic_to(f(a.x), f(a.y), f(b.x), f(b.y), f(c.x), f(c.y));
+                    }
+                }
+            }
+            if s.closed {
+                pb.close();
+            }
+            continue;
+        }
         let mut it = s.pts.iter().map(|p| t.apply(*p));
         let Some(first) = it.next() else { continue };
         pb.move_to(f(first.x), f(first.y));
