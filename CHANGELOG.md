@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.7 — 2026-11-02
 
 - TIFF pictures with an alpha channel keep their transparency like PNG ones (C's `tifftopnm | ppmtopcx` drops it): blended with what lies below in the canvas, PDF (soft mask) and bitmaps, composited over white in PostScript and EPS. Associated (premultiplied, ExtraSamples 1) alpha is un-premultiplied first. Palette TIFFs and TIFFs without alpha are unchanged.
 - PNG with `tRNS`: the straight pixels are kept as for alpha PNGs, so a palette entry's own alpha value is used per pixel, and a grey or RGB picture with a transparent colour makes exactly the pixels of that stored colour transparent (before, the colour was compared after gamma correction and compositing, so other pixels of the same visible colour could turn transparent too). 16-bit PNGs with alpha were checked: they blend correctly.
