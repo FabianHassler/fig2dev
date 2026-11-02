@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- PNG pictures with an alpha channel (RGBA, grey + alpha) keep it in the canvas, PDF and bitmap output: partly transparent pixels are blended with what lies below (straight-alpha "over"), and the PDF image gets a soft mask. They came out too pale, since the reader composited the pixels over white (in libpng's linear light, as C does) and the scene then drew them opaque, and an opaque white pixel of such a picture was taken for the transparent colour. PostScript and EPS output still composite over white, as genps does (PostScript has no alpha). `Pic::rgba` holds the straight pixels; the other drivers' reading (emf, tk, ptk) is unchanged, and `-g` or `-N` still composite at read time.
+- PNG export: written as RGB (colour type 2) when no pixel is transparent, RGBA otherwise, with the best compression and adaptive filtering (was always RGBA at the default compression): 2 to 7 times smaller on the sample figures (pines 30,230 to 8,028 bytes, wenig 205,447 to 62,210, greece 2,761,744 to 2,276,711). The pixels are unchanged; the output stays deterministic. New `raster::write_png`.
+
 - Reader: a text keeps its leading blanks, as xfig's `f_read.c` reads them (the rest of the line after the separating blank; Fig 2.x to 3.2). C fig2dev's `"%d %n"` skips all blanks, so `4 ... 1200    abc\001` gave `abc` there and gives `   abc` here. Intended difference from fig2dev 3.2.9a: figures with such texts (indented text, a blank-only text) now differ from the C output by those blanks in the text drivers, PostScript, SVG and PDF. Fig 1.3 is unchanged (xfig's `%d %[^\n]` skips them too). The editing reader already did this.
 
 ## 0.9.6 — 2026-11-01

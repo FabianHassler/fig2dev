@@ -1490,6 +1490,34 @@ pub fn read_png(ctx: &Ctx, data: &[u8], pic: &mut Pic, msgs: &mut Vec<String>) -
             }
         }
     }
+    // The pixels with their own alpha, for the drivers that can draw it
+    // (the canvas, PNG, PDF): C composites over the background at read time
+    // (above), which makes a half transparent pixel opaque and pale.
+    pic.rgba = Vec::new();
+    if has_alpha && !ctx.grayonly && !ctx.bgspec {
+        let mut rgba = Vec::with_capacity(w.saturating_mul(h).saturating_mul(4));
+        for y in 0..h {
+            for x in 0..w {
+                let (c, a) = if color == png::ColorType::Rgba {
+                    let c = if let Some(g16) = &g16 {
+                        [0, 1, 2].map(|k| g16.correct(raw16(y, x * 4 + k)))
+                    } else {
+                        [0, 1, 2].map(|k| at(&gamma.table, sample(y, x * 4 + k)))
+                    };
+                    (c, sample(y, x * 4 + 3))
+                } else {
+                    let g = if let Some(g16) = &g16 {
+                        g16.correct(raw16(y, x * 2))
+                    } else {
+                        at(&gamma.table, sample(y, x * 2))
+                    };
+                    ([g; 3], sample(y, x * 2 + 1))
+                };
+                rgba.extend_from_slice(&[c[0], c[1], c[2], a]);
+            }
+        }
+        pic.rgba = rgba;
+    }
     if palette_overrun {
         warn.push("libpng warning: IDAT: Read palette index exceeding num_palette");
     }
@@ -2205,16 +2233,23 @@ pub enum LoadedPicture {
 /// taken relative to `ctx.dir`. Errors carry genps.c's messages ("No such
 /// picture file: …", "…: Unknown image format").
 pub fn load_picture(ctx: &mut Ctx, name: &str) -> Result<LoadedPicture, String> {
-    load_picture_as(ctx, name, false)
+    load_picture_as(ctx, name, false, true)
 }
 
 /// [`load_picture`] with the pixels as genps draws them (`genps`: see
 /// [`pic_to_raster_as`]).
 pub fn load_picture_genps(ctx: &mut Ctx, name: &str) -> Result<LoadedPicture, String> {
-    load_picture_as(ctx, name, true)
+    load_picture_as(ctx, name, true, false)
 }
 
-fn load_picture_as(ctx: &mut Ctx, name: &str, genps: bool) -> Result<LoadedPicture, String> {
+/// [`load_picture_genps`] for the languages that draw an alpha channel
+/// (PDF, the bitmaps): a PNG keeps its alpha instead of having it composited
+/// over white.
+pub fn load_picture_genps_alpha(ctx: &mut Ctx, name: &str) -> Result<LoadedPicture, String> {
+    load_picture_as(ctx, name, true, true)
+}
+
+fn load_picture_as(ctx: &mut Ctx, name: &str, genps: bool, keep_alpha: bool) -> Result<LoadedPicture, String> {
     if file_on_disk(&pic_path(ctx, name)).is_none() {
         return Err(format!("No such picture file: {name}"));
     }
@@ -2256,7 +2291,7 @@ fn load_picture_as(ctx: &mut Ctx, name: &str, genps: bool) -> Result<LoadedPictu
                 data: stream.data,
             })
         }
-        _ => pic_to_raster_as(&pic, genps).map(LoadedPicture::Raster),
+        _ => pic_to_raster_opts(&pic, genps, keep_alpha).map(LoadedPicture::Raster),
     }
 }
 
@@ -2271,6 +2306,13 @@ pub fn pic_to_raster(pic: &Pic) -> Result<RasterImage, String> {
 /// `tRNS` colour or an alpha channel, composited already) stays opaque,
 /// as genps's `indexed_image` writes a colour map and no `/MaskColor`.
 pub fn pic_to_raster_as(pic: &Pic, genps: bool) -> Result<RasterImage, String> {
+    pic_to_raster_opts(pic, genps, false)
+}
+
+/// [`pic_to_raster_as`]; with `keep_alpha` a PNG's alpha channel stays
+/// (straight alpha, [`Pic::rgba`]) where C composites it over the
+/// background.
+pub fn pic_to_raster_opts(pic: &Pic, genps: bool, keep_alpha: bool) -> Result<RasterImage, String> {
     let (w, h) = (pic.bit_size.x, pic.bit_size.y);
     let (Ok(w), Ok(h)) = (u32::try_from(w), u32::try_from(h)) else {
         return Err(format!("{}: bad picture size", pic.file));
@@ -2280,6 +2322,14 @@ pub fn pic_to_raster_as(pic: &Pic, genps: bool) -> Result<RasterImage, String> {
     let Some(n) = n else {
         return Err(format!("{}: bad picture size", pic.file));
     };
+    if keep_alpha && pic.subtype == P_PNG && pic.rgba.len() == n * 4 {
+        // a PNG with an alpha channel keeps it (C composites it over white)
+        return Ok(RasterImage {
+            width: w,
+            height: h,
+            rgba: pic.rgba.clone(),
+        });
+    }
     let transparent = (pic.num_transp == TRANSP_COLOR).then_some(pic.transp_col);
     let mut rgba = Vec::with_capacity(n * 4);
     let push = |rgba: &mut Vec<u8>, c: [u8; 3]| {

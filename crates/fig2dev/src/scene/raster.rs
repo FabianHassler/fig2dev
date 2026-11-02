@@ -658,36 +658,86 @@ pub fn pixmap_rgba(pm: &Pixmap) -> Vec<u8> {
     out
 }
 
-/// Encode a pixmap as PNG.
+/// Encode a pixmap as PNG: RGB (colour type 2) when every pixel is opaque,
+/// RGBA otherwise; see [`write_png`].
 pub fn encode_png(pm: &Pixmap) -> Result<Vec<u8>, String> {
-    pm.encode_png().map_err(|e| e.to_string())
+    write_png(pm.width(), pm.height(), &pixmap_rgba(pm))
 }
 
-/// Encode straight (un-premultiplied) RGBA pixels as PNG.
-pub fn encode_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
-    let size = IntSize::from_wh(width, height).ok_or("empty image")?;
+/// Writes straight RGBA pixels as a PNG: colour type RGB when no pixel is
+/// transparent (a third smaller before compression), RGBA otherwise; best
+/// compression with an adaptive filter. The output depends on the pixels
+/// only.
+pub fn write_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
     let expected = (width as usize)
         .checked_mul(height as usize)
         .and_then(|n| n.checked_mul(4))
         .ok_or("image too large")?;
-    if rgba.len() != expected {
+    if width == 0 || height == 0 || rgba.len() != expected {
         return Err("pixel buffer has the wrong size".into());
     }
-    let mut data = rgba.to_vec();
-    for [r, g, b, a] in data.as_chunks_mut::<4>().0.iter_mut() {
-        let al = u16::from(*a);
-        *r = ((u16::from(*r) * al + 127) / 255) as u8;
-        *g = ((u16::from(*g) * al + 127) / 255) as u8;
-        *b = ((u16::from(*b) * al + 127) / 255) as u8;
-    }
-    let pm = Pixmap::from_vec(data, size).ok_or("cannot build image")?;
-    encode_png(&pm)
+    let opaque = rgba.as_chunks::<4>().0.iter().all(|p| p[3] == 255);
+    let mut out = Vec::new();
+    let mut enc = png::Encoder::new(&mut out, width, height);
+    enc.set_depth(png::BitDepth::Eight);
+    enc.set_compression(png::Compression::High);
+    enc.set_filter(png::Filter::Adaptive);
+    let rgb: Vec<u8>;
+    let data = if opaque {
+        enc.set_color(png::ColorType::Rgb);
+        rgb = rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .flat_map(|p| [p[0], p[1], p[2]])
+            .collect();
+        &rgb[..]
+    } else {
+        enc.set_color(png::ColorType::Rgba);
+        rgba
+    };
+    let mut w = enc.write_header().map_err(|e| e.to_string())?;
+    w.write_image_data(data).map_err(|e| e.to_string())?;
+    w.finish().map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+/// Encode straight (un-premultiplied) RGBA pixels as PNG.
+pub fn encode_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
+    write_png(width, height, rgba)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use figbase::color::Rgb;
+
+    fn color_type(png_bytes: &[u8]) -> png::ColorType {
+        png::Decoder::new(std::io::Cursor::new(png_bytes))
+            .read_info()
+            .unwrap()
+            .info()
+            .color_type
+    }
+
+    #[test]
+    fn png_is_rgb_unless_a_pixel_is_transparent() {
+        let opaque: Vec<u8> = (0..16 * 16).flat_map(|i| [i as u8, 7, 200, 255]).collect();
+        let a = write_png(16, 16, &opaque).unwrap();
+        assert_eq!(color_type(&a), png::ColorType::Rgb);
+        assert_eq!(a, write_png(16, 16, &opaque).unwrap(), "deterministic");
+        let mut clear = opaque.clone();
+        clear[3] = 0;
+        clear[7] = 128;
+        let b = write_png(16, 16, &clear).unwrap();
+        assert_eq!(color_type(&b), png::ColorType::Rgba);
+        // the alpha channel round-trips (straight, not premultiplied)
+        let mut r = png::Decoder::new(std::io::Cursor::new(&b)).read_info().unwrap();
+        let mut buf = vec![0; r.output_buffer_size().unwrap()];
+        r.next_frame(&mut buf).unwrap();
+        assert_eq!(buf, clear);
+        assert!(write_png(2, 2, &[0; 4]).is_err());
+    }
 
     #[test]
     fn draws_a_filled_box() {

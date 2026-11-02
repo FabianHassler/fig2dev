@@ -20,7 +20,7 @@ use super::{
 use crate::gendev::{drawing_order, Obj, FIG_COLOR_NAMES, NUM_STD_COLS};
 use crate::object::{self as f, Compound};
 use crate::util::pdfpic::PdfPicture;
-use crate::util::readpics::{load_picture, load_picture_genps, LoadedPicture};
+use crate::util::readpics::{load_picture, load_picture_genps, load_picture_genps_alpha, LoadedPicture};
 use crate::Ctx;
 use figbase::color::{Rgb, STANDARD_COLORS};
 use figbase::geom::{
@@ -436,8 +436,11 @@ impl Builder {
         // a PDF page to draw as a vector picture
         let mut pdf_vector: Option<Shared<PdfPicture>> = None;
         if !file.is_empty() {
-            let loaded = if self.text.genps {
+            let loaded = if self.text.genps && self.text.ps_pictures {
+                // PostScript has no alpha channel: genps composites over white
                 load_picture_genps(ctx, file)
+            } else if self.text.genps {
+                load_picture_genps_alpha(ctx, file)
             } else {
                 load_picture(ctx, file)
             };

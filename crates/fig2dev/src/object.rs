@@ -248,6 +248,10 @@ pub struct Pic {
     /// `transp_col` or a malloc'ed array): the transparent index of a GIF, or
     /// the `tRNS` alpha values of a PNG palette.
     pub transp_cols: Vec<u8>,
+    /// RustFig addition: a PNG's pixels as straight RGBA, where it has an
+    /// alpha channel (the `bitmap` has them composited over the background,
+    /// as C reads them); empty otherwise.
+    pub rgba: Vec<u8>,
     pub hw_ratio: f32,
     pub bit_size: Point,
 }
