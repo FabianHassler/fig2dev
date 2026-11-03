@@ -172,6 +172,74 @@ pub struct SvgDriver {
     pathno: i32,
     clipno: i32,
     arrows: ArrowState,
+    /// Typeset texts drawn so far (their SVG ids).
+    typeset: u32,
+}
+
+impl SvgDriver {
+    /// A special text as the page a typesetter made for it (RustFig's
+    /// export with LaTeX typesetting, [`crate::scene::typeset`]): vector
+    /// paths placed at the text's anchor, justification and angle. The
+    /// group keeps the text, font, size and colour (`data-rustfig-*`).
+    fn typeset_text(&mut self, ctx: &mut Ctx, out: &mut Out, t: &Text) -> bool {
+        use crate::object::{PSFONT_TEXT, SPECIAL_TEXT};
+        use crate::scene::typeset::{page_corners, TypesetRequest};
+        use figbase::style::Justify;
+        if t.flags & SPECIAL_TEXT == 0 {
+            return false;
+        }
+        let Some(ty) = ctx.typesetter.clone() else {
+            return false;
+        };
+        let rgb = rgb_color_val(ctx, t.color);
+        let size = if t.size.is_finite() {
+            t.size.clamp(0.1, 5000.0)
+        } else {
+            12.0
+        };
+        let Some(ts) = ty.typeset(&TypesetRequest {
+            text: &t.cstring,
+            font: t.font,
+            postscript: t.flags & PSFONT_TEXT != 0,
+            size,
+            color: crate::scene::Rgba::opaque(figbase::color::Rgb::new(
+                ((rgb >> 16) & 0xff) as u8,
+                ((rgb >> 8) & 0xff) as u8,
+                (rgb & 0xff) as u8,
+            )),
+        }) else {
+            return false;
+        };
+        // The corners in Fig units of 1200 per inch, scaled to the file's.
+        let k = if ctx.ppi.is_finite() && ctx.ppi > 0.0 {
+            ctx.ppi / 1200.0
+        } else {
+            1.0
+        };
+        let angle = if t.angle.is_finite() { t.angle } else { 0.0 };
+        let origin = figbase::geom::Point::new(f64::from(t.base_x), f64::from(t.base_y));
+        let corners = page_corners(
+            figbase::geom::Point::new(0.0, 0.0),
+            angle,
+            Justify::from_fig(t.type_),
+            &ts,
+        )
+        .map(|p| figbase::geom::Point::new(origin.x + p.x * k, origin.y + p.y * k));
+        self.typeset += 1;
+        let mut svg = String::new();
+        crate::scene::svg::pdf_picture(&mut svg, &corners, false, &ts.pdf, 1_000_000 + self.typeset);
+        if svg.is_empty() {
+            return false;
+        }
+        fprintf!(
+            out,
+            "<g class=\"rustfig-latex\" data-rustfig-text=\"{}\" data-rustfig-font=\"{}\" data-rustfig-size=\"{}\" data-rustfig-color=\"#{rgb:06x}\">\n{svg}</g>\n",
+            xml_attr(&t.cstring),
+            t.font,
+            t.size,
+        );
+        true
+    }
 }
 
 /// The driver for `svg`.
@@ -182,6 +250,7 @@ pub fn new(lang: &str) -> Option<Box<dyn Driver>> {
             pathno: -1,
             clipno: -1,
             arrows: ArrowState::default(),
+            typeset: 0,
         }) as Box<dyn Driver>
     })
 }
@@ -973,6 +1042,9 @@ impl Driver for SvgDriver {
         let (mut x, mut y) = (t.base_x, t.base_y);
         out.puts("<!-- Text -->\n");
         print_svgcomments(out, "<!-- ", &t.comments, " -->\n");
+        if self.typeset_text(ctx, out, t) {
+            return Ok(());
+        }
         if t.angle != 0.0 {
             fprintf!(
                 out,
@@ -1100,6 +1172,23 @@ fn special_text_body(out: &mut Out, t: &Text, s: &[u8]) {
     for _ in 0..open {
         out.puts("</tspan>");
     }
+}
+
+/// `s` as an XML attribute value.
+fn xml_attr(s: &str) -> String {
+    let mut o = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => o.push_str("&amp;"),
+            '<' => o.push_str("&lt;"),
+            '>' => o.push_str("&gt;"),
+            '"' => o.push_str("&quot;"),
+            '\n' => o.push_str("&#10;"),
+            c if (c as u32) < 0x20 => {}
+            c => o.push(c),
+        }
+    }
+    o
 }
 
 #[cfg(test)]

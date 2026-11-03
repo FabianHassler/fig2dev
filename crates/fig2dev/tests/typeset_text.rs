@@ -80,3 +80,18 @@ fn bitmaps_draw_the_typeset_page() {
     let without = run("ppm", None);
     assert_ne!(with, without);
 }
+
+#[test]
+fn svg_draws_the_typeset_page_as_paths() {
+    let ts = Arc::new(Fixed::default());
+    let svg = String::from_utf8_lossy(&run("svg", Some(ts))).into_owned();
+    assert!(svg.contains("matrix("), "the page is placed by a transform");
+    assert!(svg.contains("PLAINTEXT"));
+    assert!(
+        !svg.contains(">$x^2$<"),
+        "the special text is drawn as TeX's page, not as text"
+    );
+    // The source stays with the picture, for reading the text back.
+    assert!(svg.contains("data-rustfig-text=\"$x^2$\""));
+    assert!(svg.contains("data-rustfig-size=\"12\""));
+}

@@ -448,7 +448,7 @@ pub fn to_svg_page(
 /// A PDF picture: the first page as SVG markup (vectors where it can),
 /// its box mapped onto the corners as the PDF writer and the rasteriser do
 /// (`flipped` mirrors it along the box's diagonal).
-fn pdf_picture(out: &mut String, corners: &[Point; 4], flipped: bool, pdf: &PdfPicture, id: u32) {
+pub(crate) fn pdf_picture(out: &mut String, corners: &[Point; 4], flipped: bool, pdf: &PdfPicture, id: u32) {
     let Some(page) = pdf.to_svg(&format!("pdf{id}_")) else {
         return;
     };
