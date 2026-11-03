@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- SVG: PDF pictures are drawn as vectors (scene SVG writer, as RustFig exports it; before, they vanished). New `util::pdfsvg` (`PdfPicture::to_svg`): a `hayro-interpret` device like the PDF-to-EPS one writes paths, fills, strokes (width, caps, joins, miter limit, dashes), clip paths, glyphs as outlines, images and stencil masks (embedded PNG), constant colour opacity, and axial and radial shadings that extend past both ends (gradients); the page box is mapped onto the picture's corners as the PDF writer does, flipped pictures included. Transparency groups, soft masks, blend modes, other shadings, tiling patterns and greyed (`-N`) pictures fall back to one embedded PNG of the page.
 - Bitmaps: the exact curves of 0.9.9 are flattened for the output resolution (chords within 0.2 px) instead of handed to tiny-skia as curves, whose stroker left a hole in a thick outline whose half width exceeds the radius (a ring where a disc belongs) and drew thin curves about 25 % heavier than lines. Same speed (190,000 circles 200 ms).
 
 ## 0.9.9 — 2026-11-02

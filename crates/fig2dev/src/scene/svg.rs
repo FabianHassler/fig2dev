@@ -12,6 +12,7 @@ use super::output::{Meta, CREATOR};
 use super::pattern::{coverage, PatternFrame};
 use super::{Fill, Prim, Rgba, Scene, Stroke, SubPath, TextPrim};
 use crate::drivers::dxf::fmt_g;
+use crate::util::pdfpic::PdfPicture;
 use figbase::geom::{Point, Rect, Seg};
 use figbase::image::RasterImage;
 use figbase::style::{CapStyle, JoinStyle, Justify};
@@ -355,6 +356,7 @@ pub fn to_svg_page(
         );
     }
     let mut clip_id = 0;
+    let mut pdf_id = 0;
     for p in &scene.prims {
         match p {
             Prim::Path { subpaths, fill, stroke } => {
@@ -399,7 +401,11 @@ pub fn to_svg_page(
                 }
             }
             Prim::Text(t) => text(&mut out, t),
-            Prim::PictureRef { .. } | Prim::PdfPicture { .. } => {}
+            Prim::PictureRef { .. } => {}
+            Prim::PdfPicture { corners, flipped, pdf } => {
+                pdf_id += 1;
+                pdf_picture(&mut out, corners, *flipped, pdf, pdf_id);
+            }
             Prim::LinkedImage { file, p1, p3, flipped } => {
                 linked_image(&mut out, file, *p1, *p3, *flipped);
             }
@@ -437,6 +443,33 @@ pub fn to_svg_page(
     }
     out.push_str("</g>\n</svg>\n");
     out
+}
+
+/// A PDF picture: the first page as SVG markup (vectors where it can),
+/// its box mapped onto the corners as the PDF writer and the rasteriser do
+/// (`flipped` mirrors it along the box's diagonal).
+fn pdf_picture(out: &mut String, corners: &[Point; 4], flipped: bool, pdf: &PdfPicture, id: u32) {
+    let Some(page) = pdf.to_svg(&format!("pdf{id}_")) else {
+        return;
+    };
+    let [tl, tr, _, bl] = *corners;
+    let (ex, ey) = if flipped {
+        (bl - tl, tr - tl)
+    } else {
+        (tr - tl, bl - tl)
+    };
+    // the page's (x, y), y down, goes to tl + x/W ex + y/H ey
+    let _ = writeln!(
+        out,
+        "<g transform=\"matrix({} {} {} {} {} {})\">\n{}</g>",
+        n6(ex.x / page.width),
+        n6(ex.y / page.width),
+        n6(ey.x / page.height),
+        n6(ey.y / page.height),
+        n(tl.x),
+        n(tl.y),
+        page.svg
+    );
 }
 
 /// `put_sanitized_char` over a comment.

@@ -13,6 +13,7 @@
 //! - [`readjpg`]: `dev/readjpg.c`, `encode.c` (JPEG header, ASCII85, the DCT passthrough).
 //! - [`readpics`]: `dev/readpics.c` and the `dev/read*.c` picture readers.
 //! - [`pdfpic`], [`pdfps`]: PDF pictures through the `hayro` crates (`pdftops` of `dev/readeps.c`).
+//! - [`pdfsvg`]: the same page as SVG markup for the SVG writer.
 //! - `gs`: ghostscript for EPS pictures in PDF and bitmap output (not on wasm).
 
 pub mod creationdate;
@@ -22,6 +23,7 @@ pub mod iso2tex;
 pub mod latex;
 pub mod pdfpic;
 pub mod pdfps;
+pub mod pdfsvg;
 pub mod psfonts;
 pub mod readjpg;
 pub mod readpics;

@@ -314,7 +314,7 @@ impl PsDevice {
 /// The colour function of a shading as 8 bit RGB samples over its domain
 /// (the function's own, scaled to 0..1); `None` when it can't be
 /// evaluated or has transparency.
-fn sample_function(
+pub(super) fn sample_function(
     function: &ShadingFunction,
     sh: &hayro::hayro_interpret::shading::Shading,
     domain: [f32; 2],

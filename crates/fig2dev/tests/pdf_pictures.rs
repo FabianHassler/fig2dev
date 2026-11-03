@@ -276,3 +276,67 @@ fn jpeg_in_pdf_keeps_its_data() {
         "the file's bytes are in the PDF"
     );
 }
+
+/// RustFig's SVG export (the scene writer) of a figure with the picture.
+fn scene_svg(file: &str, flipped: u8) -> String {
+    use fig2dev::scene::build::{build, TextOptions};
+    let mut ctx = Ctx {
+        dir: Some(fixtures()),
+        ..Ctx::default()
+    };
+    let objects = readfp_fig(&mut ctx, fig(file, flipped).as_bytes())
+        .map_err(|_| "read")
+        .unwrap();
+    let (scene, _) = build(&mut ctx, &objects, TextOptions::default());
+    let bounds = fig2dev::scene::output::export_bounds(&scene, 0.0);
+    fig2dev::scene::svg::to_svg(&scene, &bounds, 1.0, None)
+}
+
+/// The numbers of the first `<g transform="matrix(...)">` of the picture.
+fn picture_matrix(svg: &str) -> [f64; 6] {
+    let at = svg.find("<g transform=\"matrix(").expect("a picture group") + "<g transform=\"matrix(".len();
+    let end = at + svg[at..].find(')').unwrap();
+    let v: Vec<f64> = svg[at..end].split(' ').map(|x| x.parse().unwrap()).collect();
+    v.try_into().unwrap()
+}
+
+#[test]
+fn scene_svg_draws_pdf_pictures_as_vectors() {
+    let t = scene_svg("rich.pdf", 0);
+    // the page (200 x 150 pt) onto the 2400 x 2400 box at (1200, 1200)
+    let m = picture_matrix(&t);
+    let at = |x: f64, y: f64| (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]);
+    let close = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).abs() < 0.01 && (a.1 - b.1).abs() < 0.01;
+    assert!(close(at(0.0, 0.0), (1200.0, 1200.0)), "{m:?}");
+    assert!(close(at(200.0, 150.0), (3600.0, 3600.0)), "{m:?}");
+    assert!(t.contains("id=\"pdf1_page\""));
+    // glyph outlines and the curve are paths, the dashes a stroke style
+    assert!(t.matches("<path ").count() > 10, "{}", t.matches("<path ").count());
+    assert!(t.contains("stroke-dasharray") && t.contains("clip-path=\"url(#pdf1_c"));
+    // the sampled image is embedded, the page is not one image
+    assert_eq!(t.matches("<image ").count(), 1);
+    assert!(t.contains("data:image/png;base64,"));
+    assert_eq!(t.matches("<g").count(), t.matches("</g>").count(), "balanced groups");
+}
+
+#[test]
+fn scene_svg_flipped_pdf_picture_swaps_the_axes() {
+    let m = picture_matrix(&scene_svg("rich.pdf", 1));
+    // flipped: the page's x runs down the box, its y across
+    assert!(
+        m[0].abs() < 1e-9 && m[3].abs() < 1e-9 && m[1] > 0.0 && m[2] > 0.0,
+        "{m:?}"
+    );
+    assert_eq!((m[4], m[5]), (1200.0, 1200.0));
+}
+
+#[test]
+fn scene_svg_gradients_and_fallback() {
+    let t = scene_svg("shade.pdf", 0);
+    assert!(t.contains("<linearGradient") && t.contains("<stop ") && !t.contains("<image "));
+    let t = scene_svg("radial.pdf", 0);
+    // the `sh` shading doesn't extend at one end: the page is one image
+    assert!(t.contains("<image ") && !t.contains("Gradient"));
+    let t = scene_svg("trans.pdf", 0);
+    assert!(t.contains("fill-opacity") || t.contains("<image "));
+}

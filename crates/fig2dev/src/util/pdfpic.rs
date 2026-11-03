@@ -11,7 +11,8 @@
 //! - [`PdfPicture::render`]: the page as pixels for the bitmap languages
 //!   and the canvas;
 //! - [`PdfPicture::to_eps`]: the page as EPS for the PostScript writers
-//!   (the `pdftops` step of C; see [`super::pdfps`]).
+//!   (the `pdftops` step of C; see [`super::pdfps`]);
+//! - [`PdfPicture::to_svg`]: the page as SVG markup (see [`super::pdfsvg`]).
 //!
 //! Every call into the PDF crates is guarded: a hostile file gives `None`,
 //! never a panic (on wasm a panic aborts, so the crates must not panic
@@ -106,6 +107,11 @@ impl PdfPicture {
             id: self.id ^ 0x6772_6179,
             ..self.clone()
         }
+    }
+
+    /// Whether the picture is rendered in grey levels (`-N`).
+    pub(crate) fn is_gray(&self) -> bool {
+        self.gray
     }
 
     /// The page's size in points.
@@ -207,6 +213,12 @@ impl PdfPicture {
     /// the page can't be converted.
     pub fn to_eps(&self) -> Option<super::pdfps::PdfEps> {
         super::pdfps::to_eps(self)
+    }
+
+    /// The page as SVG markup in points (y down), vectors where it can
+    /// (see [`super::pdfsvg`]); `id_prefix` starts the ids it defines.
+    pub fn to_svg(&self, id_prefix: &str) -> Option<super::pdfsvg::PdfSvg> {
+        super::pdfsvg::to_svg(self, id_prefix)
     }
 }
 
