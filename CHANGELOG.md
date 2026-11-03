@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Bitmaps: the exact curves of 0.9.9 are flattened for the output resolution (chords within 0.2 px) instead of handed to tiny-skia as curves, whose stroker left a hole in a thick outline whose half width exceeds the radius (a ring where a disc belongs) and drew thin curves about 25 % heavier than lines. Same speed (190,000 circles 200 ms).
+
 ## 0.9.9 — 2026-11-02
 
 - Bitmaps and the canvas draw ellipses, circles, arcs and rounded boxes from their exact curves instead of a flattening with a fixed step of 5 Fig units (61 lines for a circle three pixels across). tiny-skia flattens the curves for the output resolution: 190,000 small circles rasterise 2.5 to 3 times faster. Output differs only in edge pixels; arcs shortened by arrowheads still use the flattened line.

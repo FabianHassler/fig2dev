@@ -75,23 +75,29 @@ fn f(v: f64) -> f32 {
 fn build_path(subpaths: &[SubPath], t: &Affine) -> Option<Path> {
     let mut pb = PathBuilder::new();
     for s in subpaths {
-        // The exact curves where there are some: tiny-skia flattens them for
-        // the device, where `pts` has a fixed step in Fig units (61 lines
-        // for a circle of three pixels).
+        // The exact curves where there are some, flattened for the device
+        // (`pts` has a fixed step in Fig units: 61 lines for a circle of three
+        // pixels). Straight pieces, not tiny-skia's curves: its stroker leaves a
+        // hole in a thick outline whose half width exceeds the radius, and its
+        // curve hairlines are heavier than the line hairlines.
         if let Some(segs) = s.curve.as_deref().filter(|c| matches!(c.first(), Some(Seg::Move(_)))) {
+            let mut at = Point::ZERO;
             for seg in segs {
                 match *seg {
                     Seg::Move(p) => {
-                        let p = t.apply(p);
-                        pb.move_to(f(p.x), f(p.y));
+                        at = t.apply(p);
+                        pb.move_to(f(at.x), f(at.y));
                     }
                     Seg::Line(p) => {
-                        let p = t.apply(p);
-                        pb.line_to(f(p.x), f(p.y));
+                        at = t.apply(p);
+                        pb.line_to(f(at.x), f(at.y));
                     }
                     Seg::Cubic(a, b, c) => {
                         let (a, b, c) = (t.apply(a), t.apply(b), t.apply(c));
-                        pb.cubic_to(f(a.x), f(a.y), f(b.x), f(b.y), f(c.x), f(c.y));
+                        for q in flatten_cubic(at, a, b, c) {
+                            pb.line_to(f(q.x), f(q.y));
+                        }
+                        at = c;
                     }
                 }
             }
@@ -111,6 +117,32 @@ fn build_path(subpaths: &[SubPath], t: &Affine) -> Option<Path> {
         }
     }
     pb.finish()
+}
+
+/// Points along the cubic from `p0` (excluded) to `p3` (included), in device
+/// pixels, so that the chords stay within about a fifth of a pixel of the
+/// curve: few for a small circle, more for a large one (the number from the
+/// control polygon's second differences, a bound on the curvature).
+fn flatten_cubic(p0: Point, p1: Point, p2: Point, p3: Point) -> Vec<Point> {
+    const TOL: f64 = 0.2;
+    let dd = |a: Point, b: Point, c: Point| Point::new(a.x - 2.0 * b.x + c.x, a.y - 2.0 * b.y + c.y).len();
+    let d = dd(p0, p1, p2).max(dd(p1, p2, p3));
+    let n = if d.is_finite() {
+        (0.75 * d / TOL).sqrt().ceil().clamp(1.0, 1000.0) as usize
+    } else {
+        1
+    };
+    (1..=n)
+        .map(|i| {
+            let u = i as f64 / n as f64;
+            let v = 1.0 - u;
+            let (a, b, c, e) = (v * v * v, 3.0 * v * v * u, 3.0 * v * u * u, u * u * u);
+            Point::new(
+                a * p0.x + b * p1.x + c * p2.x + e * p3.x,
+                a * p0.y + b * p1.y + c * p2.y + e * p3.y,
+            )
+        })
+        .collect()
 }
 
 fn device_bbox(subpaths: &[SubPath], t: &Affine) -> Rect {
@@ -762,6 +794,54 @@ mod tests {
         r.next_frame(&mut buf).unwrap();
         assert_eq!(buf, clear);
         assert!(write_png(2, 2, &[0; 4]).is_err());
+    }
+
+    /// Ink (alpha sum) of a circle's outline drawn with or without its exact curve.
+    fn circle_ink(r: f64, width: f64, scale: f64, exact: bool) -> f64 {
+        let c = Point::new(2000.0, 2000.0);
+        let scene = Scene {
+            prims: vec![Prim::Path {
+                subpaths: vec![SubPath {
+                    // the reference: a fine flattening (0.5 Fig units)
+                    pts: figbase::geom::flatten_ellipse(c, r, r, 0.0, 0.5),
+                    closed: true,
+                    curve: exact.then(|| figbase::geom::ellipse_path(c, r, r, 0.0)),
+                }],
+                fill: None,
+                stroke: Some(Stroke {
+                    width,
+                    color: Rgba::opaque(Rgb::new(0, 0, 0)),
+                    dash: Vec::new(),
+                    cap: CapStyle::Butt,
+                    join: JoinStyle::Miter,
+                }),
+            }],
+        };
+        let area = Rect::new(Point::new(0.0, 0.0), Point::new(4000.0, 4000.0));
+        let pm = render_region(&scene, &area, scale, None, PatternFrame::screen()).unwrap();
+        pm.data().chunks(4).map(|p| f64::from(p[3])).sum()
+    }
+
+    /// A circle's outline drawn from its exact curve covers what the geometry
+    /// says, an annulus (a disc when the half width exceeds the radius: no
+    /// hole), within antialiasing; thin outlines are not heavier.
+    #[test]
+    fn curve_outlines_cover_their_geometry() {
+        for (r, width, scale) in [
+            (30.0_f64, 80.0_f64, 0.3_f64), // half width 12 px > radius 9 px: a disc
+            (60.0, 300.0, 0.3),            // half width 45 px > radius 18 px
+            (200.0, 60.0, 0.3),            // thick, half width below the radius
+            (1000.0, 100.0, 0.06),
+            (200.0, 40.0, 0.06), // a line of about 2.4 px
+        ] {
+            let (outer, inner) = (r + width / 2.0, (r - width / 2.0).max(0.0));
+            let want = std::f64::consts::PI * (outer * outer - inner * inner) * scale * scale * 255.0;
+            let got = circle_ink(r, width, scale, true);
+            assert!(
+                (got - want).abs() <= 0.04 * want,
+                "r {r} width {width} scale {scale}: {got} vs {want}"
+            );
+        }
     }
 
     #[test]
