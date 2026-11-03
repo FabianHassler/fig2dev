@@ -184,6 +184,9 @@ pub struct Ctx {
     /// creationdate.c's `static struct tm`: the time is read once, and a
     /// bad `SOURCE_DATE_EPOCH` is reported once, per conversion.
     pub creation_cache: Option<Option<crate::util::creationdate::DateTime>>,
+    /// Typesets special (LaTeX) texts for the scene languages; set by a
+    /// program that can run TeX (see [`crate::scene::typeset`]).
+    pub typesetter: Option<std::sync::Arc<dyn crate::scene::typeset::TextTypesetter>>,
 }
 
 impl Default for Ctx {
@@ -247,6 +250,7 @@ impl Default for Ctx {
             partial_line: false,
             dir: None,
             creation_cache: None,
+            typesetter: None,
         }
     }
 }

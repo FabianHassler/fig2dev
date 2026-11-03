@@ -715,11 +715,34 @@ impl Builder {
         let scale = Some(self.text.scale)
             .filter(|s| s.is_finite() && *s > 0.0)
             .unwrap_or(1.0);
+        let origin = Point::new(self.coord(f64::from(t.base_x)), self.coord(f64::from(t.base_y)));
+        let size = finite(t.size, 12.0).clamp(0.1, 5000.0) * scale;
+        let justify = Justify::from_fig(t.type_);
+        if special {
+            // TeX's page for the text, where a typesetter has one.
+            let typeset = ctx.typesetter.clone().and_then(|ty| {
+                ty.typeset(&super::typeset::TypesetRequest {
+                    text: &t.cstring,
+                    font: t.font,
+                    postscript: t.flags & f::PSFONT_TEXT != 0,
+                    size,
+                    color: Rgba::opaque(color(ctx, t.color)),
+                })
+            });
+            if let Some(ts) = typeset {
+                self.prims.push(Prim::PdfPicture {
+                    corners: super::typeset::page_corners(origin, finite(t.angle, 0.0), justify, &ts),
+                    flipped: false,
+                    pdf: ts.pdf,
+                });
+                return;
+            }
+        }
         self.prims.push(Prim::Text(TextPrim {
-            origin: Point::new(self.coord(f64::from(t.base_x)), self.coord(f64::from(t.base_y))),
+            origin,
             angle: finite(t.angle, 0.0),
-            size: finite(t.size, 12.0).clamp(0.1, 5000.0) * scale,
-            justify: Justify::from_fig(t.type_),
+            size,
+            justify,
             font,
             postscript,
             text: t.cstring.clone(),

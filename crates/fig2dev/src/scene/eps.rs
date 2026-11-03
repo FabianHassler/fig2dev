@@ -762,8 +762,14 @@ fn draw_prims(c: &mut Ctx, scene: &Scene, embeds: &std::collections::BTreeMap<St
             continue;
         }
         match p {
-            // (the PostScript writers get PDF pages as embedded EPS)
-            Prim::LinkedImage { .. } | Prim::PdfPicture { .. } => {}
+            // (the PostScript writers get PDF pictures as embedded EPS;
+            // a PDF page left in the scene is a typeset special text)
+            Prim::LinkedImage { .. } => {}
+            Prim::PdfPicture { corners, pdf, .. } => {
+                if let Some(e) = pdf.to_eps() {
+                    embed_page(c, corners, pdf.size(), &e.ps);
+                }
+            }
             Prim::PictureRef { corners, flipped, file } => {
                 if let Some(e) = embeds.get(file) {
                     embed(c, corners, *flipped, e);
@@ -970,6 +976,58 @@ pub fn to_ps(
     }
     o.push_str("%%Trailer\n%%EOF\n");
     c.out
+}
+
+/// Embeds a PDF page converted to EPS (`%%BoundingBox: 0 0 w h`, the page
+/// `size` in points) into the box `corners` (top-left, top-right,
+/// bottom-right, bottom-left), which may be rotated: a typeset text.
+fn embed_page(c: &mut Ctx, corners: &[Point; 4], size: (f64, f64), ps: &str) {
+    let (w, h) = size;
+    if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
+        return;
+    }
+    let [tl, tr, _, bl] = corners.map(|p| {
+        let (x, y) = c.p(p);
+        Point::new(x, y)
+    });
+    // Page point (x, y), y up from the bottom-left corner: bl + x/w (tr − tl)
+    // + y/h (tl − bl).
+    let (ex, ey) = (tr - tl, tl - bl);
+    let o = &mut c.out;
+    o.push_str(
+        "% Begin typeset text
+newpath gsave
+",
+    );
+    let _ = writeln!(
+        o,
+        "[{} {} {} {} {} {}] concat",
+        n(ex.x / w),
+        n(ex.y / w),
+        n(ey.x / h),
+        n(ey.y / h),
+        n(bl.x),
+        n(bl.y)
+    );
+    o.push_str(
+        "save
+countdictstack
+mark
+/showpage {} def
+/setpagedevice {pop} def
+",
+    );
+    o.push_str(ps);
+    if !o.ends_with('\n') {
+        o.push('\n');
+    }
+    o.push_str(
+        "cleartomark
+countdictstack exch sub { end } repeat
+restore grestore
+% End typeset text
+",
+    );
 }
 
 /// Embeds an EPS file into the picture box `corners` (genps.c).

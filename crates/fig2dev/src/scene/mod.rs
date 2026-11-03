@@ -30,6 +30,7 @@ pub mod raster;
 pub mod sld;
 pub mod svg;
 mod textcache;
+pub mod typeset;
 
 pub use build::build;
 pub use output::{export_bounds, write, EmbeddedEps, EmbeddedJpeg, ExportFormat, Page, CREATOR};
