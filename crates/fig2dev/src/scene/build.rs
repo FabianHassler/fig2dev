@@ -98,6 +98,8 @@ pub struct Builder {
     pub prims: Vec<Prim>,
     /// The EPS pictures read, by file name, for the EPS writer to embed.
     pub embedded_eps: BTreeMap<String, EmbeddedEps>,
+    /// The special texts drawn as typeset pages.
+    typeset: Vec<super::TypesetMark>,
     /// The message about missing ghostscript has been given.
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     told_gs: bool,
@@ -112,6 +114,7 @@ impl Builder {
             text,
             prims: Vec::new(),
             embedded_eps: BTreeMap::new(),
+            typeset: Vec::new(),
             told_gs: false,
         }
     }
@@ -120,6 +123,7 @@ impl Builder {
     pub fn scene(&mut self) -> Scene {
         Scene {
             prims: std::mem::take(&mut self.prims),
+            typeset: std::mem::take(&mut self.typeset),
         }
     }
 
@@ -730,10 +734,22 @@ impl Builder {
                 })
             });
             if let Some(ts) = typeset {
+                let corners = super::typeset::page_corners(origin, finite(t.angle, 0.0), justify, &ts);
                 self.prims.push(Prim::PdfPicture {
-                    corners: super::typeset::page_corners(origin, finite(t.angle, 0.0), justify, &ts),
+                    corners,
                     flipped: false,
                     pdf: ts.pdf,
+                });
+                self.typeset.push(super::TypesetMark {
+                    text: t.cstring.clone(),
+                    font: t.font,
+                    postscript: t.flags & f::PSFONT_TEXT != 0,
+                    size: finite(t.size, 12.0),
+                    color: Rgba::opaque(color(ctx, t.color)),
+                    origin,
+                    angle: finite(t.angle, 0.0),
+                    justify,
+                    corners,
                 });
                 return;
             }

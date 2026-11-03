@@ -233,10 +233,17 @@ impl SvgDriver {
         }
         fprintf!(
             out,
-            "<g class=\"rustfig-latex\" data-rustfig-text=\"{}\" data-rustfig-font=\"{}\" data-rustfig-size=\"{}\" data-rustfig-color=\"#{rgb:06x}\">\n{svg}</g>\n",
+            "<g class=\"rustfig-latex\" data-rustfig-text=\"{}\" data-rustfig-font=\"{}\" data-rustfig-ps=\"{}\" \
+             data-rustfig-size=\"{}\" data-rustfig-color=\"#{rgb:06x}\" data-rustfig-x=\"{}\" data-rustfig-y=\"{}\" \
+             data-rustfig-angle=\"{}\" data-rustfig-justify=\"{}\">\n{svg}</g>\n",
             xml_attr(&t.cstring),
             t.font,
+            u8::from(t.flags & PSFONT_TEXT != 0),
             t.size,
+            t.base_x,
+            t.base_y,
+            angle,
+            t.type_,
         );
         true
     }

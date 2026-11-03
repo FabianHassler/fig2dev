@@ -60,6 +60,14 @@ fn special_texts_become_typeset_pages() {
     // Without a typesetter: no picture.
     let plain = String::from_utf8_lossy(&run("pdf", None)).into_owned();
     assert!(pdf_forms > forms(&plain), "the page is a Form XObject");
+    // The source is kept on the page, for reading the text back.
+    assert!(pdf.contains("/RustFigLaTeX"), "the page lists its typeset texts");
+    assert!(
+        pdf.contains(r#""text":"$x^2$","font":0,"ps":false,"size":12"#),
+        "{}",
+        &pdf[pdf.find("/RustFigLaTeX").unwrap_or(0)..][..200.min(pdf.len())]
+    );
+    assert!(!plain.contains("/RustFigLaTeX"));
 }
 
 #[test]
@@ -94,4 +102,6 @@ fn svg_draws_the_typeset_page_as_paths() {
     // The source stays with the picture, for reading the text back.
     assert!(svg.contains("data-rustfig-text=\"$x^2$\""));
     assert!(svg.contains("data-rustfig-size=\"12\""));
+    assert!(svg.contains("data-rustfig-x=\"1200\" data-rustfig-y=\"1200\""));
+    assert!(svg.contains("data-rustfig-justify=\"0\""));
 }

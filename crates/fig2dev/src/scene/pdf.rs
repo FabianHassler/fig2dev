@@ -687,6 +687,83 @@ pub fn to_pdf(scene: &Scene, bounds: &Rect, scale: f64, background: Option<Rgba>
     to_pdf_pages(scene, bounds, scale, background, &meta, None, 5, &BTreeMap::new())
 }
 
+/// The page key under which the typeset texts' source is kept: a JSON
+/// array of `{text, font, ps, size, color, x, y, angle, justify, box}` with
+/// the anchor and the box (8 numbers, the corners top-left, top-right,
+/// bottom-right, bottom-left of the unrotated text) in PDF points of the
+/// page, y up; angle in radians, justify as in Fig (0 left, 1 center, 2
+/// right).
+pub const TYPESET_KEY: &[u8] = b"RustFigLaTeX";
+
+fn typeset_json(c: &Ctx, marks: &[super::TypesetMark]) -> Option<String> {
+    use std::fmt::Write as _;
+    if marks.is_empty() {
+        return None;
+    }
+    let num = |v: f64| {
+        if v.is_finite() {
+            format!("{}", (v * 1000.0).round() / 1000.0)
+        } else {
+            "0".into()
+        }
+    };
+    let mut o = String::from("[");
+    for (i, m) in marks.iter().enumerate() {
+        if i > 0 {
+            o.push(',');
+        }
+        let (x, y) = c.p(m.origin);
+        let corners: Vec<String> = m
+            .corners
+            .iter()
+            .flat_map(|p| {
+                let (x, y) = c.p(*p);
+                [num(f64::from(x)), num(f64::from(y))]
+            })
+            .collect();
+        let justify = match m.justify {
+            Justify::Left => 0,
+            Justify::Center => 1,
+            Justify::Right => 2,
+        };
+        let _ = write!(
+            o,
+            "{{\"text\":{},\"font\":{},\"ps\":{},\"size\":{},\"color\":\"#{:02x}{:02x}{:02x}\",\"x\":{},\"y\":{},\"angle\":{},\"justify\":{justify},\"box\":[{}]}}",
+            json_string(&m.text),
+            m.font,
+            m.postscript,
+            num(m.size),
+            m.color.r,
+            m.color.g,
+            m.color.b,
+            num(f64::from(x)),
+            num(f64::from(y)),
+            num(m.angle),
+            corners.join(",")
+        );
+    }
+    o.push(']');
+    Some(o)
+}
+
+/// `s` as a JSON string.
+fn json_string(s: &str) -> String {
+    use std::fmt::Write as _;
+    let mut o = String::from("\"");
+    for ch in s.chars() {
+        match ch {
+            '"' => o.push_str("\\\""),
+            '\\' => o.push_str("\\\\"),
+            c if (c as u32) < 0x20 => {
+                let _ = write!(o, "\\u{:04x}", c as u32);
+            }
+            c => o.push(c),
+        }
+    }
+    o.push('"');
+    o
+}
+
 /// Like [`to_pdf`]; with a `layout` the figure goes on its pages (fig2dev's
 /// page mode) instead of one page of the figure's size. `minor` is the PDF
 /// version 1.`minor` (`-Y`).
@@ -716,6 +793,13 @@ pub fn to_pdf_pages(
         min_x: b.min.x,
         max_y: b.max.y,
         t3: Vec::new(),
+    };
+    // The typeset texts' source on the page, for reading them back (a
+    // figure-sized page only: page mode moves the drawing per page).
+    let typeset_marks = if layout.is_none() {
+        typeset_json(&c, &scene.typeset)
+    } else {
+        None
     };
     if let (Some(bg), None) = (background, layout) {
         c.fill_rgb(bg);
@@ -890,6 +974,9 @@ pub fn to_pdf_pages(
         page.media_box(PdfRect::new(0.0, 0.0, f(page_w), f(page_h)));
         page.parent(tree_id);
         page.contents(content_id);
+        if let Some(json) = &typeset_marks {
+            page.pair(Name(TYPESET_KEY), Str(json.as_bytes()));
+        }
         let mut res = page.resources();
         {
             let mut fonts = res.fonts();
@@ -1171,6 +1258,7 @@ mod tests {
             let idx = base14_index(&t);
             let pdf = to_pdf(
                 &Scene {
+                    typeset: Vec::new(),
                     prims: vec![Prim::Text(t)],
                 },
                 &bounds,

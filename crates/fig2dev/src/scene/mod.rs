@@ -318,6 +318,29 @@ impl Prim {
 #[derive(Debug, Clone, Default)]
 pub struct Scene {
     pub prims: Vec<Prim>,
+    /// The special texts drawn as typeset pages, with their source, so a
+    /// writer can store them for reading the text back (the PDF writer).
+    pub typeset: Vec<TypesetMark>,
+}
+
+/// A special text drawn as the page TeX typeset for it
+/// ([`typeset`](self::typeset)).
+#[derive(Debug, Clone)]
+pub struct TypesetMark {
+    pub text: String,
+    pub font: i32,
+    pub postscript: bool,
+    /// The text's font size as in the file (points).
+    pub size: f64,
+    pub color: Rgba,
+    /// The anchor, Fig units.
+    pub origin: Point,
+    /// Radians, counterclockwise.
+    pub angle: f64,
+    pub justify: Justify,
+    /// The page's box (top-left, top-right, bottom-right, bottom-left of
+    /// the unrotated text), Fig units.
+    pub corners: [Point; 4],
 }
 
 impl Scene {

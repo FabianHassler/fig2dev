@@ -800,6 +800,7 @@ mod tests {
     fn circle_ink(r: f64, width: f64, scale: f64, exact: bool) -> f64 {
         let c = Point::new(2000.0, 2000.0);
         let scene = Scene {
+            typeset: Vec::new(),
             prims: vec![Prim::Path {
                 subpaths: vec![SubPath {
                     // the reference: a fine flattening (0.5 Fig units)
@@ -853,6 +854,7 @@ mod tests {
             Point::new(0.0, 1200.0),
         ];
         let scene = Scene {
+            typeset: Vec::new(),
             prims: vec![Prim::Path {
                 subpaths: vec![SubPath {
                     pts: corners.to_vec(),
@@ -888,6 +890,7 @@ mod tests {
             Point::new(0.0, 2400.0),
         ];
         let scene = Scene {
+            typeset: Vec::new(),
             prims: vec![Prim::Path {
                 subpaths: vec![SubPath {
                     pts: corners.to_vec(),
