@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.12 — 2026-11-05
+
+- `scene::raster::rasterize_prims` draws some of a scene's primitives (any iterator over them, in the order given): a program that rasterizes a large scene in bands can hand each band only the primitives that touch it instead of letting every band walk all of them. `rasterize_aa` is `rasterize_prims` over the whole scene; output unchanged.
+
 ## 0.9.11 — 2026-11-03
 
 - SVG: PDF pictures are drawn as vectors in the scene SVG writer (before, they vanished). New `util::pdfsvg` (`PdfPicture::to_svg`): a `hayro-interpret` device like the PDF-to-EPS one writes paths, fills, strokes (width, caps, joins, miter limit, dashes), clip paths, glyphs as outlines, images and stencil masks (embedded PNG), constant colour opacity, and axial and radial shadings that extend past both ends (gradients); the page box is mapped onto the picture's corners as the PDF writer does, flipped pictures included. Transparency groups, soft masks, blend modes, other shadings, tiling patterns and greyed (`-N`) pictures fall back to one embedded PNG of the page.
