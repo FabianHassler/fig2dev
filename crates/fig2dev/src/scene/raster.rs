@@ -542,7 +542,14 @@ pub fn rasterize(scene: &Scene, pm: &mut Pixmap, opts: &RasterOptions) {
 /// Draw a scene onto a pixmap, antialiased or not (fig2dev's bitmaps
 /// without smoothing are not).
 pub fn rasterize_aa(scene: &Scene, pm: &mut Pixmap, opts: &RasterOptions, aa: bool) {
-    for p in &scene.prims {
+    rasterize_prims(scene.prims.iter(), pm, opts, aa);
+}
+
+/// Draw some of a scene's primitives, in the order given (a caller that
+/// draws a large scene in bands passes each band only the primitives that
+/// touch it, so no band walks them all).
+pub fn rasterize_prims<'a>(prims: impl IntoIterator<Item = &'a Prim>, pm: &mut Pixmap, opts: &RasterOptions, aa: bool) {
+    for p in prims {
         match p {
             Prim::Path { subpaths, fill, stroke } => draw_path(pm, subpaths, fill.as_ref(), stroke.as_ref(), opts, aa),
             Prim::Text(t) => draw_text(pm, t, opts, aa),
@@ -794,6 +801,43 @@ mod tests {
         r.next_frame(&mut buf).unwrap();
         assert_eq!(buf, clear);
         assert!(write_png(2, 2, &[0; 4]).is_err());
+    }
+
+    /// Drawing a subset draws those primitives, as the whole scene draws them.
+    #[test]
+    fn a_subset_draws_as_the_scene_does() {
+        let square = |x: f64, rgb: Rgb| Prim::Path {
+            subpaths: vec![SubPath {
+                pts: vec![
+                    Point::new(x, 100.0),
+                    Point::new(x + 400.0, 100.0),
+                    Point::new(x + 400.0, 500.0),
+                    Point::new(x, 500.0),
+                ],
+                closed: true,
+                curve: None,
+            }],
+            fill: Some(Fill::Solid(Rgba::opaque(rgb))),
+            stroke: None,
+        };
+        let scene = Scene {
+            typeset: Vec::new(),
+            prims: vec![square(100.0, Rgb::new(255, 0, 0)), square(800.0, Rgb::new(0, 0, 255))],
+        };
+        let opts = RasterOptions {
+            transform: Affine::scale(0.1, 0.1),
+            min_line_px: 1.0,
+            adjust_px: 0.0,
+            pattern_k: 1,
+            pattern: PatternFrame::screen(),
+        };
+        let (mut all, mut first) = (Pixmap::new(140, 60).unwrap(), Pixmap::new(140, 60).unwrap());
+        rasterize(&scene, &mut all, &opts);
+        rasterize_prims(scene.prims.first(), &mut first, &opts, true);
+        let px = |pm: &Pixmap, x: u32| pm.pixel(x, 30).unwrap();
+        assert_eq!(px(&first, 30), px(&all, 30));
+        assert_eq!(px(&first, 100).alpha(), 0);
+        assert!(px(&all, 100).alpha() > 0);
     }
 
     /// Ink (alpha sum) of a circle's outline drawn with or without its exact curve.
