@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.13 — 2026-11-06
+
+- PDF: a page names only the standard fonts its text uses (all 14 were always listed): the graphics part of `pdftex`, which has no text, names none, so font checks no longer report 14 fonts that are not embedded.
+- Typeset special texts (a `TextTypesetter` in `Ctx::typesetter`, RustFig's export): the page holds each special text with the box TeX gave it. fig2dev's bounds count a special text with its stored length (the width of its source) or, with `$` or `\` in it, not at all, so labels at the edge were cut and some pages too wide; with a typesetter such texts are left out of the bounds and the scene drivers and the svg driver add TeX's box (half a point more for ink), or the text's own box where TeX gave no page. Without a typesetter (the fig2dev program) the bounds are fig2dev's, as before.
+- `TextTypesetter::prepare` receives every special text of the figure before the first is typeset (scene drivers and svg), so a typesetter can set them in one TeX run. `PdfPicture::open_page` opens one page of a file several pictures share, and the PDF writer copies the pages of one file together (`PdfPicture::xobjects`): their fonts are in the output once instead of once per text (RustFig's PDFs with many LaTeX labels were 1.5 to 5 times larger than fig2pdf's).
+
 ## 0.9.12 — 2026-11-05
 
 - `scene::raster::rasterize_prims` draws some of a scene's primitives (any iterator over them, in the order given): a program that rasterizes a large scene in bands can hand each band only the primitives that touch it instead of letting every band walk all of them. `rasterize_aa` is `rasterize_prims` over the whole scene; output unchanged.
