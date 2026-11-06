@@ -261,7 +261,11 @@ fn compound_list_bound(ctx: &Ctx, list: &[Compound], include: bool) -> Bounds {
             let half_wd = s.thickness.saturating_add(1) / 2;
             merge(&mut acc, pad(b, half_wd));
         }
-        for t in compound.texts.iter().filter(|t| !skip(t.depth)) {
+        // With a typesetter (RustFig's export) a special text counts with
+        // the box TeX gives it, which the scene drivers add; its stored
+        // length would be the width of the source.
+        let typeset = |t: &Text| ctx.typesetter.is_some() && t.special_text();
+        for t in compound.texts.iter().filter(|t| !skip(t.depth) && !typeset(t)) {
             merge(&mut acc, text_bound(ctx, t, include));
         }
     }

@@ -47,6 +47,11 @@ pub struct Typeset {
 /// Source of typeset special texts; `None` draws the text as text.
 pub trait TextTypesetter: Send + Sync + std::fmt::Debug {
     fn typeset(&self, req: &TypesetRequest<'_>) -> Option<Typeset>;
+
+    /// Every special text the output will ask for, before the first is
+    /// asked: a typesetter may set them all in one TeX run (one start of
+    /// TeX, fonts shared by the pages). Nothing by default.
+    fn prepare(&self, _requests: &[TypesetRequest<'_>]) {}
 }
 
 /// The corners of a typeset text's box (top-left, top-right, bottom-right,

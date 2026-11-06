@@ -100,6 +100,9 @@ pub struct Builder {
     pub embedded_eps: BTreeMap<String, EmbeddedEps>,
     /// The special texts drawn as typeset pages.
     typeset: Vec<super::TypesetMark>,
+    /// With a typesetter: the boxes of the special texts (TeX's, or the
+    /// text's own where TeX gave none), which fig2dev's bounds leave out.
+    special_bounds: Rect,
     /// The message about missing ghostscript has been given.
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     told_gs: bool,
@@ -115,6 +118,7 @@ impl Builder {
             prims: Vec::new(),
             embedded_eps: BTreeMap::new(),
             typeset: Vec::new(),
+            special_bounds: Rect::EMPTY,
             told_gs: false,
         }
     }
@@ -735,6 +739,9 @@ impl Builder {
             });
             if let Some(ts) = typeset {
                 let corners = super::typeset::page_corners(origin, finite(t.angle, 0.0), justify, &ts);
+                // TeX's box and half a point for ink that passes it.
+                let ink = super::typeset::corners(origin, finite(t.angle, 0.0), justify, &ts, 600.0 / 72.0);
+                self.special_bounds = self.special_bounds.union(&Rect::from_points(ink));
                 self.prims.push(Prim::PdfPicture {
                     corners,
                     flipped: false,
@@ -754,7 +761,7 @@ impl Builder {
                 return;
             }
         }
-        self.prims.push(Prim::Text(TextPrim {
+        let prim = Prim::Text(TextPrim {
             origin,
             angle: finite(t.angle, 0.0),
             size,
@@ -765,7 +772,44 @@ impl Builder {
             color: Rgba::opaque(color(ctx, t.color)),
             special: t.special_text(),
             local_font,
-        }));
+        });
+        if special && ctx.typesetter.is_some() {
+            self.special_bounds = self.special_bounds.union(&prim.bbox());
+        }
+        self.prims.push(prim);
+    }
+
+    /// What [`Builder::text`] will ask the typesetter for, for every special
+    /// text of `objects` (in their compounds too).
+    pub fn typeset_requests<'a>(&self, ctx: &Ctx, objects: &'a Compound) -> Vec<super::typeset::TypesetRequest<'a>> {
+        fn walk<'a>(b: &Builder, ctx: &Ctx, c: &'a Compound, out: &mut Vec<super::typeset::TypesetRequest<'a>>) {
+            for t in &c.texts {
+                if t.flags & f::SPECIAL_TEXT == 0 || b.text.skip_special || (b.text.genps && t.hidden_text()) {
+                    continue;
+                }
+                let scale = Some(b.text.scale).filter(|s| s.is_finite() && *s > 0.0).unwrap_or(1.0);
+                let size = if t.size.is_finite() { t.size } else { 12.0 }.clamp(0.1, 5000.0) * scale;
+                out.push(super::typeset::TypesetRequest {
+                    text: &t.cstring,
+                    font: t.font,
+                    postscript: t.flags & f::PSFONT_TEXT != 0,
+                    size,
+                    color: Rgba::opaque(color(ctx, t.color)),
+                });
+            }
+            for sub in &c.compounds {
+                walk(b, ctx, sub, out);
+            }
+        }
+        let mut out = Vec::new();
+        walk(self, ctx, objects, &mut out);
+        out
+    }
+
+    /// The boxes of the special texts fig2dev's bounds left out (see
+    /// [`Builder::special_bounds`]'s field); empty without a typesetter.
+    pub fn special_bounds(&self) -> Rect {
+        self.special_bounds
     }
 
     /// One object, as `convert` hands it to a driver.

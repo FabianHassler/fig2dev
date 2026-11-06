@@ -183,31 +183,12 @@ impl SvgDriver {
     /// group keeps the text, font, size and colour (`data-rustfig-*`).
     fn typeset_text(&mut self, ctx: &mut Ctx, out: &mut Out, t: &Text) -> bool {
         use crate::object::{PSFONT_TEXT, SPECIAL_TEXT};
-        use crate::scene::typeset::{page_corners, TypesetRequest};
+        use crate::scene::typeset::page_corners;
         use figbase::style::Justify;
         if t.flags & SPECIAL_TEXT == 0 {
             return false;
         }
-        let Some(ty) = ctx.typesetter.clone() else {
-            return false;
-        };
-        let rgb = rgb_color_val(ctx, t.color);
-        let size = if t.size.is_finite() {
-            t.size.clamp(0.1, 5000.0)
-        } else {
-            12.0
-        };
-        let Some(ts) = ty.typeset(&TypesetRequest {
-            text: &t.cstring,
-            font: t.font,
-            postscript: t.flags & PSFONT_TEXT != 0,
-            size,
-            color: crate::scene::Rgba::opaque(figbase::color::Rgb::new(
-                ((rgb >> 16) & 0xff) as u8,
-                ((rgb >> 8) & 0xff) as u8,
-                (rgb & 0xff) as u8,
-            )),
-        }) else {
+        let Some((ts, rgb)) = typeset_one(ctx, t) else {
             return false;
         };
         // The corners in Fig units of 1200 per inch, scaled to the file's.
@@ -713,6 +694,7 @@ impl Driver for SvgDriver {
 
     /// `gensvg_start`.
     fn start(&mut self, ctx: &mut Ctx, out: &mut Out, objects: &Compound) -> Result<(), String> {
+        typeset_into_bounds(ctx, objects);
         out.puts("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n");
         fprintf!(out, "<!-- Creator: {CREATOR} -->\n");
         if let Some(d) = creation_time(ctx) {
@@ -1197,6 +1179,129 @@ fn xml_attr(s: &str) -> String {
         }
     }
     o
+}
+
+/// A special text typeset by `ctx`'s typesetter, with its color as
+/// 0xRRGGBB; `None` without a typesetter or when TeX gave no page.
+fn typeset_one(ctx: &Ctx, t: &Text) -> Option<(crate::scene::typeset::Typeset, u32)> {
+    use crate::object::PSFONT_TEXT;
+    let ty = ctx.typesetter.clone()?;
+    let rgb = rgb_color_val(ctx, t.color);
+    let size = if t.size.is_finite() {
+        t.size.clamp(0.1, 5000.0)
+    } else {
+        12.0
+    };
+    let ts = ty.typeset(&crate::scene::typeset::TypesetRequest {
+        text: &t.cstring,
+        font: t.font,
+        postscript: t.flags & PSFONT_TEXT != 0,
+        size,
+        color: crate::scene::Rgba::opaque(figbase::color::Rgb::new(
+            ((rgb >> 16) & 0xff) as u8,
+            ((rgb >> 8) & 0xff) as u8,
+            (rgb & 0xff) as u8,
+        )),
+    })?;
+    Some((ts, rgb))
+}
+
+/// With a typesetter, fig2dev's bounds leave special texts out: add each
+/// one's box as TeX typeset it (half a point more for ink that passes it),
+/// or fig2dev's own box for one TeX gave no page, before the header gives
+/// the `viewBox`.
+fn typeset_into_bounds(ctx: &mut Ctx, objects: &Compound) {
+    if ctx.typesetter.is_none() {
+        return;
+    }
+    fn walk(ctx: &Ctx, c: &Compound, acc: &mut Option<(f64, f64, f64, f64)>) {
+        let skip = |depth: i32| ctx.adjust_boundingbox && !ctx.depth_filter(depth);
+        for t in c.texts.iter().filter(|t| t.special_text() && !skip(t.depth)) {
+            let pts: Vec<(f64, f64)> = match typeset_one(ctx, t) {
+                Some((ts, _)) => {
+                    let k = if ctx.ppi.is_finite() && ctx.ppi > 0.0 {
+                        ctx.ppi / 1200.0
+                    } else {
+                        1.0
+                    };
+                    let angle = if t.angle.is_finite() { t.angle } else { 0.0 };
+                    crate::scene::typeset::corners(
+                        figbase::geom::Point::new(0.0, 0.0),
+                        angle,
+                        figbase::style::Justify::from_fig(t.type_),
+                        &ts,
+                        600.0 / 72.0,
+                    )
+                    .iter()
+                    .map(|p| (f64::from(t.base_x) + p.x * k, f64::from(t.base_y) + p.y * k))
+                    .collect()
+                }
+                None => {
+                    let b = crate::bound::text_bound(ctx, t, true);
+                    vec![(f64::from(b.0), f64::from(b.1)), (f64::from(b.2), f64::from(b.3))]
+                }
+            };
+            for (x, y) in pts.into_iter().filter(|(x, y)| x.is_finite() && y.is_finite()) {
+                *acc = Some(match *acc {
+                    None => (x, y, x, y),
+                    Some((a, b, c, d)) => (a.min(x), b.min(y), c.max(x), d.max(y)),
+                });
+            }
+        }
+        for sub in &c.compounds {
+            walk(ctx, sub, acc);
+        }
+    }
+    // All special texts to the typesetter at once (one TeX run).
+    fn requests<'a>(ctx: &Ctx, c: &'a Compound, out: &mut Vec<(&'a Text, u32)>) {
+        for t in c.texts.iter().filter(|t| t.special_text()) {
+            out.push((t, rgb_color_val(ctx, t.color)));
+        }
+        for sub in &c.compounds {
+            requests(ctx, sub, out);
+        }
+    }
+    if let Some(ty) = ctx.typesetter.clone() {
+        let mut texts = Vec::new();
+        requests(ctx, objects, &mut texts);
+        let reqs: Vec<crate::scene::typeset::TypesetRequest<'_>> = texts
+            .iter()
+            .map(|(t, rgb)| crate::scene::typeset::TypesetRequest {
+                text: &t.cstring,
+                font: t.font,
+                postscript: t.flags & crate::object::PSFONT_TEXT != 0,
+                size: if t.size.is_finite() {
+                    t.size.clamp(0.1, 5000.0)
+                } else {
+                    12.0
+                },
+                color: crate::scene::Rgba::opaque(figbase::color::Rgb::new(
+                    ((rgb >> 16) & 0xff) as u8,
+                    ((rgb >> 8) & 0xff) as u8,
+                    (rgb & 0xff) as u8,
+                )),
+            })
+            .collect();
+        if !reqs.is_empty() {
+            ty.prepare(&reqs);
+        }
+    }
+    let mut acc = None;
+    walk(ctx, objects, &mut acc);
+    let Some((x0, y0, x1, y1)) = acc else {
+        return;
+    };
+    let clamp = |v: f64| v.clamp(-1.0e9, 1.0e9);
+    let (x0, y0) = (clamp(x0.floor()) as i32, clamp(y0.floor()) as i32);
+    let (x1, y1) = (clamp(x1.ceil()) as i32, clamp(y1.ceil()) as i32);
+    if ctx.llx > ctx.urx || ctx.lly > ctx.ury {
+        (ctx.llx, ctx.lly, ctx.urx, ctx.ury) = (x0, y0, x1, y1);
+    } else {
+        ctx.llx = ctx.llx.min(x0);
+        ctx.lly = ctx.lly.min(y0);
+        ctx.urx = ctx.urx.max(x1);
+        ctx.ury = ctx.ury.max(y1);
+    }
 }
 
 #[cfg(test)]

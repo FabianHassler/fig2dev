@@ -374,7 +374,15 @@ impl Driver for SceneDriver {
             ps_pictures: matches!(self.format, ExportFormat::Eps),
             eps_via_gs: matches!(self.format, ExportFormat::Pdf) || self.format.is_bitmap(),
         };
-        self.builder = Some(Builder::new(ctx, text));
+        let builder = Builder::new(ctx, text);
+        // All special texts to the typesetter at once (one TeX run).
+        if let Some(ty) = ctx.typesetter.clone() {
+            let requests = builder.typeset_requests(ctx, objects);
+            if !requests.is_empty() {
+                ty.prepare(&requests);
+            }
+        }
+        self.builder = Some(builder);
         self.options = Some(o);
         self.comments = objects.comments.iter().map(|c| c.text.clone()).collect();
         self.comments_raw = objects.comments.iter().map(|c| c.raw.clone()).collect();
@@ -419,13 +427,21 @@ impl Driver for SceneDriver {
         let (Some(o), Some(mut b)) = (self.options.take(), self.builder.take()) else {
             return Err("fig2dev: no header written (internal error)".into());
         };
+        let special = b.special_bounds();
         let mut scene = b.scene();
-        // fig2dev's bounds, in Fig units of 1200 per inch.
+        // fig2dev's bounds, in Fig units of 1200 per inch, and the special
+        // texts as TeX typeset them (they are not in fig2dev's bounds then;
+        // a figure of only such texts has none).
         let k = file_scale(ctx);
-        let raw = Rect::from_points([
+        let fig = Rect::from_points([
             Point::new(f64::from(ctx.llx) * k, f64::from(ctx.lly) * k),
             Point::new(f64::from(ctx.urx) * k, f64::from(ctx.ury) * k),
         ]);
+        let raw = match (ctx.llx > ctx.urx || ctx.lly > ctx.ury, special.is_empty()) {
+            (true, false) => special,
+            (false, false) => fig.union(&special),
+            _ => fig,
+        };
         // The magnification after -m or -Z, with the metric correction.
         let scale = if ctx.mag.is_finite() {
             ctx.mag.clamp(0.001, 1000.0 * 80.0 / 76.2)

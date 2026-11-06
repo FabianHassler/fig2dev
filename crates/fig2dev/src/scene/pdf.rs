@@ -197,6 +197,9 @@ struct Ctx {
     t3: Vec<T3Font>,
     /// Installed fonts (`rustfig-font:` comments), embedded as subsets.
     lf: Vec<GlyphSet>,
+    /// The standard fonts the page uses: only these are listed, so a page
+    /// without text (pdftex's graphics part) names no font at all.
+    used14: [bool; 14],
 }
 
 impl Ctx {
@@ -501,6 +504,9 @@ fn text(c: &mut Ctx, t: &TextPrim) {
     let Some((res, _)) = BASE14.get(idx) else {
         return;
     };
+    if let Some(u) = c.used14.get_mut(idx) {
+        *u = true;
+    }
     let size = super::font_px(t.size) * c.k;
     let (x, y) = c.p(t.origin);
     let (s, co) = t.angle.sin_cos();
@@ -788,6 +794,7 @@ pub fn to_pdf_pages(
     let (w, h) = (b.width() * k, b.height() * k);
     let mut c = Ctx {
         lf: Vec::new(),
+        used14: [false; 14],
         c: Content::new(),
         k,
         min_x: b.min.x,
@@ -901,16 +908,57 @@ pub fn to_pdf_pages(
     }
     // The PDF pictures' pages: their objects come after ours; one that
     // can't be copied is an empty form, so the name still resolves.
+    // Pages of one shared file (TeX's typeset texts) are copied together,
+    // so that their fonts are in the output once.
     let mut pdf_objs: Vec<(String, Ref, Option<pdf_writer::Chunk>)> = Vec::new();
-    for p in &pdfs {
-        match p.pic.xobject(next) {
-            Some((chunk, root, after)) => {
-                next = after;
-                pdf_objs.push((p.name.clone(), root, Some(chunk)));
+    let mut done = vec![false; pdfs.len()];
+    for i in 0..pdfs.len() {
+        if done.get(i) != Some(&false) {
+            continue;
+        }
+        let Some(first) = pdfs.get(i) else {
+            continue;
+        };
+        let group: Vec<usize> = (i..pdfs.len())
+            .filter(|&j| done.get(j) == Some(&false) && pdfs.get(j).is_some_and(|p| p.pic.shares_file(&first.pic)))
+            .collect();
+        for &j in &group {
+            if let Some(d) = done.get_mut(j) {
+                *d = true;
             }
-            None => {
-                pdf_objs.push((p.name.clone(), Ref::new(next), None));
-                next += 1;
+        }
+        if group.len() > 1 {
+            let pics: Vec<&PdfPicture> = group.iter().filter_map(|&j| pdfs.get(j)).map(|p| &*p.pic).collect();
+            if let Some((chunk, roots, after)) = PdfPicture::xobjects(&pics, next) {
+                next = after;
+                let mut chunk = Some(chunk);
+                for (&j, root) in group.iter().zip(roots) {
+                    if let Some(p) = pdfs.get(j) {
+                        // The shared chunk goes with the first page (an
+                        // empty one with the others: they are in it).
+                        pdf_objs.push((
+                            p.name.clone(),
+                            root,
+                            Some(chunk.take().unwrap_or_else(pdf_writer::Chunk::new)),
+                        ));
+                    }
+                }
+                continue;
+            }
+        }
+        for &j in &group {
+            let Some(p) = pdfs.get(j) else {
+                continue;
+            };
+            match p.pic.xobject(next) {
+                Some((chunk, root, after)) => {
+                    next = after;
+                    pdf_objs.push((p.name.clone(), root, Some(chunk)));
+                }
+                None => {
+                    pdf_objs.push((p.name.clone(), Ref::new(next), None));
+                    next += 1;
+                }
             }
         }
     }
@@ -981,7 +1029,9 @@ pub fn to_pdf_pages(
         {
             let mut fonts = res.fonts();
             for (i, (name, _)) in BASE14.iter().enumerate() {
-                fonts.pair(Name(name.as_bytes()), Ref::new(font_base + i as i32));
+                if c.used14.get(i) == Some(&true) {
+                    fonts.pair(Name(name.as_bytes()), Ref::new(font_base + i as i32));
+                }
             }
             for (i, (font, _, _)) in t3_ids.iter().enumerate() {
                 fonts.pair(Name(format!("T3_{i}").as_bytes()), *font);
@@ -1003,6 +1053,9 @@ pub fn to_pdf_pages(
         page.finish();
     }
     for (i, (_, base)) in BASE14.iter().enumerate() {
+        if c.used14.get(i) != Some(&true) {
+            continue;
+        }
         let mut font = pdf.type1_font(Ref::new(font_base + i as i32));
         font.base_font(Name(base.as_bytes()));
         if !matches!(*base, "Symbol" | "ZapfDingbats") {
@@ -1230,6 +1283,40 @@ mod tests {
                 n.get(4)?.parse().ok()
             })
             .collect()
+    }
+
+    /// Only the standard fonts the page uses are named: a page without text
+    /// (pdftex's graphics part) names none, which font checks of
+    /// publishers would flag as not embedded.
+    #[test]
+    fn only_the_standard_fonts_used_are_listed() {
+        let bounds = Rect::new(Point::ZERO, Point::new(2400.0, 1200.0));
+        let none = to_pdf(&Scene::default(), &bounds, 1.0, None, None);
+        assert!(!String::from_utf8_lossy(&none).contains("/BaseFont"));
+        let t = TextPrim {
+            origin: Point::new(600.0, 600.0),
+            angle: 0.0,
+            size: 12.0,
+            justify: Justify::Left,
+            font: 0,
+            postscript: true,
+            text: "Times".to_string(),
+            color: Rgba {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            special: false,
+            local_font: None,
+        };
+        let scene = Scene {
+            typeset: Vec::new(),
+            prims: vec![Prim::Text(t)],
+        };
+        let one = String::from_utf8_lossy(&to_pdf(&scene, &bounds, 1.0, None, None)).into_owned();
+        assert_eq!(one.matches("/BaseFont").count(), 1, "{one}");
+        assert!(one.contains("/BaseFont /Times-Roman"));
     }
 
     #[test]

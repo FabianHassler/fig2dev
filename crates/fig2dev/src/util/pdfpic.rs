@@ -46,6 +46,9 @@ pub(crate) fn guarded<T>(f: impl FnOnce() -> Option<T>) -> Option<T> {
 #[derive(Clone)]
 pub struct PdfPicture {
     data: Arc<Vec<u8>>,
+    /// The page of the file (0 for a picture file; one page of a shared
+    /// file for TeX's typeset texts, whose pages share their fonts).
+    page: usize,
     /// A hash of the file, to tell pictures apart.
     id: u64,
     /// The page's size in points (rotation and crop box applied).
@@ -69,7 +72,7 @@ impl std::fmt::Debug for PdfPicture {
 
 impl PartialEq for PdfPicture {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.data, &other.data) || self.data == other.data
+        self.page == other.page && (Arc::ptr_eq(&self.data, &other.data) || self.data == other.data)
     }
 }
 
@@ -77,22 +80,30 @@ impl PdfPicture {
     /// Reads `data` as a PDF file; `None` when it is not one the PDF
     /// reader can open or its first page has no usable size.
     pub fn open(data: Vec<u8>) -> Option<PdfPicture> {
+        PdfPicture::open_page(Arc::new(data), 0)
+    }
+
+    /// Page `page` (from 0) of the PDF file `data`, which several pictures
+    /// may share: the PDF writer then copies the objects they have in
+    /// common (fonts) once.
+    pub fn open_page(data: Arc<Vec<u8>>, page: usize) -> Option<PdfPicture> {
         if data.len() > super::readpics::MAX_PICFILE_BYTES {
             return None;
         }
-        let data = Arc::new(data);
         let (width, height) = guarded(|| {
             let pdf = Pdf::new(data.clone()).ok()?;
-            let page = pdf.pages().first()?;
+            let page = pdf.pages().get(page)?;
             let (w, h) = page.render_dimensions();
             let (w, h) = (f64::from(w), f64::from(h));
             (w.is_finite() && h.is_finite() && w >= 1.0 && h >= 1.0 && w <= 1.0e6 && h <= 1.0e6).then_some((w, h))
         })?;
         let mut h = std::collections::hash_map::DefaultHasher::new();
         std::hash::Hash::hash(&*data, &mut h);
+        std::hash::Hash::hash(&page, &mut h);
         let id = std::hash::Hasher::finish(&h);
         Some(PdfPicture {
             data,
+            page,
             id,
             width,
             height,
@@ -129,6 +140,16 @@ impl PdfPicture {
         &self.data
     }
 
+    /// The page of the file this picture is.
+    pub fn page(&self) -> usize {
+        self.page
+    }
+
+    /// Whether `other` is a page of the same file in memory.
+    pub fn shares_file(&self, other: &PdfPicture) -> bool {
+        Arc::ptr_eq(&self.data, &other.data)
+    }
+
     /// Runs `f` on the parsed file.
     pub(crate) fn with_pdf<T>(&self, f: impl FnOnce(&Pdf) -> Option<T>) -> Option<T> {
         guarded(|| {
@@ -152,11 +173,40 @@ impl PdfPicture {
                     r
                 }),
                 ChunkSettings::default(),
-                &[ExtractionQuery::new_xobject(0)],
+                &[ExtractionQuery::new_xobject(self.page)],
             )
             .ok()?;
             let root = result.root_refs.first()?.as_ref().ok().copied()?;
             Some((result.chunk, root, next))
+        })
+    }
+
+    /// Several pages of one file (see [`PdfPicture::shares_file`]) as Form
+    /// XObjects in one chunk, numbered from `first_id` on: what they share
+    /// (fonts) is copied once. The chunk, each page's reference in order
+    /// and the next free number; `None` when they are not of one file or a
+    /// page can't be copied.
+    pub fn xobjects(pics: &[&PdfPicture], first_id: i32) -> Option<(Chunk, Vec<Ref>, i32)> {
+        let first = pics.first()?;
+        if !pics.iter().all(|p| first.shares_file(p)) {
+            return None;
+        }
+        first.with_pdf(|pdf| {
+            let mut next = first_id.max(1);
+            let queries: Vec<ExtractionQuery> = pics.iter().map(|p| ExtractionQuery::new_xobject(p.page)).collect();
+            let result = hayro_write::extract(
+                pdf,
+                Box::new(|| {
+                    let r = Ref::new(next);
+                    next = next.saturating_add(1).min(i32::MAX - 1);
+                    r
+                }),
+                ChunkSettings::default(),
+                &queries,
+            )
+            .ok()?;
+            let roots: Option<Vec<Ref>> = result.root_refs.iter().map(|r| r.as_ref().ok().copied()).collect();
+            Some((result.chunk, roots?, next))
         })
     }
 
@@ -173,7 +223,7 @@ impl PdfPicture {
             return None;
         }
         self.with_pdf(|pdf| {
-            let page = pdf.pages().first()?;
+            let page = pdf.pages().get(self.page)?;
             let (pw, ph) = page.render_dimensions();
             let settings = PixmapSettings {
                 x_scale: (width as f32 + 0.999) / pw,

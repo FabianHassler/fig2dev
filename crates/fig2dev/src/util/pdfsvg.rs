@@ -483,7 +483,7 @@ pub(crate) fn to_svg(p: &PdfPicture, id_prefix: &str) -> Option<PdfSvg> {
         None
     } else {
         p.with_pdf(|pdf| {
-            let page = pdf.pages().first()?;
+            let page = pdf.pages().get(p.page())?;
             let cache = InterpreterCache::new();
             let initial = page.initial_transform(true);
             let mut ctx = Context::new(
