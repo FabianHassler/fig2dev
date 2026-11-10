@@ -255,6 +255,20 @@ fn compound_list_bound(ctx: &Ctx, list: &[Compound], include: bool) -> Bounds {
             merge(&mut acc, pad(b, half_wd));
         }
         for s in compound.splines.iter().filter(|s| !skip(s.depth)) {
+            // A Fig 3.2 spline a driver keeps counts as the line the reader
+            // would have made of it.
+            if ctx.keep_splines && (s.x_spline() || ctx.v32_flag) {
+                let mut scratch = Ctx::default();
+                let Some(l) = crate::trans_spline::create_line_with_spline(&mut scratch, s) else {
+                    continue;
+                };
+                let Some(b) = line_bound(ctx, &l) else {
+                    continue;
+                };
+                let half_wd = ((l.thickness as f64 + 1.0) / std::f64::consts::SQRT_2).ceil() as i32;
+                merge(&mut acc, pad(b, half_wd));
+                continue;
+            }
             let Some(b) = spline_bound(ctx, s) else {
                 continue;
             };

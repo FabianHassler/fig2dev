@@ -144,6 +144,12 @@ pub struct Ctx {
     /// text keeps its leading blanks beyond the one that separates it from
     /// the fields (fig2dev's `sscanf` drops them all). Not in fig2dev.
     pub editing: bool,
+    /// The reader leaves Fig 3.2 X-splines as splines (with their shape
+    /// factors) and the bounds count them as the curve they draw, for a
+    /// driver that draws splines itself ([`Driver::keeps_splines`]; set it
+    /// before reading, or before [`crate::trans_spline::splines_to_lines`]).
+    /// Unlike `editing` it changes nothing else. Not in fig2dev.
+    pub keep_splines: bool,
     /// Whether texts need a conversion to UTF-8 (`util::textconvert`).
     pub text_conv: crate::util::textconvert::ConvState,
     /// `-g`.
@@ -226,6 +232,7 @@ impl Default for Ctx {
             lang: String::new(),
             input_encoding: None,
             editing: false,
+            keep_splines: false,
             text_conv: Default::default(),
             background: Rgb::default(),
             grid_minor_spacing: 0.0,
@@ -651,6 +658,12 @@ pub trait Driver {
     fn end(&mut self, ctx: &mut Ctx, out: &mut Out) -> Result<i32, String>;
     /// Whether texts count in the bounding box (`INCLUDE_TEXT`).
     fn text_include(&self) -> bool;
+    /// Whether the driver draws splines itself: the reader then leaves Fig
+    /// 3.2 X-splines alone instead of turning them into lines (set
+    /// `Ctx::keep_splines` from this before reading the figure).
+    fn keeps_splines(&self) -> bool {
+        false
+    }
 }
 
 /// The result of a conversion: the output and fig2dev's exit status (its

@@ -4,11 +4,24 @@
 //!
 //! Coordinates are Fig units with y negated, drawn at `unitsize(S bp)`
 //! (`S = 72 * magnification / ppi`, so 0.06 bp for a 1200 ppi figure at
-//! 100 %); line widths, dashes and font sizes are in bp. Polylines, boxes,
-//! polygons, rounded boxes, arcs, circles and ellipses are `fill`s and
-//! `draw`s of paths with explicit cap, join and dash pens; X-splines
-//! arrive from the reader as polylines, older splines are converted the
-//! same way. Arrowheads are paths computed as `calc_arrow` does, and the
+//! 100 %); line widths, dashes and font sizes are in bp. Polylines, boxes
+//! (`box(a,b)`), polygons (`--cycle`), rounded boxes, arcs, circles and
+//! ellipses are `fill`s and `draw`s of paths with explicit cap, join and
+//! dash pens. Splines stay splines (the driver `keeps_splines`, so the
+//! reader does not flatten them) and are written as Asymptote paths with
+//! the Fig points as nodes, by `-S`: `guide` (the default) keeps them as
+//! the path's own guiding points: an approximated spline (all shape
+//! factors 1) is the uniform cubic B-spline of the points
+//! (`bspline(new pair[]{...}, closed)`, a helper in the header; it does not
+//! pass through them, as xfig's does not), and any other spline is one
+//! cubic `..controls a and b..` per X-spline segment with the points as
+//! nodes (split only where more than 6 Fig units and 2 % of the chord
+//! off; mixed shape factors with a comment saying so); `hobby` is the same
+//! but an interpolated spline (all -1) is Asymptote's `..` curve through
+//! the points (`--` at corners), Hobby's curve, which can be visibly
+//! rounder than xfig's (4 mm on a 5-point shape 51 mm wide); `exact` writes every spline as
+//! such cubics, split until within 0.5 Fig units of xfig's curve. Closed
+//! splines end in `cycle`. Arrowheads are paths computed as `calc_arrow` does, and the
 //! shaft is clipped (even-odd) so that it does not poke through a hollow or
 //! pointed head. Colours are `rgb("rrggbb")` (user colours are pens named
 //! `xfigcN`), shades and tints are mixed here, patterns 41 to 62 are
@@ -21,7 +34,7 @@
 //!
 //! Options: `-b` border, `-F` no font family/series/shape, `-f` default
 //! font, `-i`/`-w` for picture names, `-O` all texts are TeX, `-o` no font
-//! size, `-T` only TeX fonts, `-G` grid.
+//! size, `-S guide|exact` spline mode, `-T` only TeX fonts, `-G` grid.
 
 use std::collections::HashSet;
 use std::f64::consts::PI;
@@ -37,7 +50,9 @@ use crate::object::{
 };
 use crate::scene::build::color;
 use crate::scene::pattern::tile;
-use crate::trans_spline::{create_line_with_spline, make_control_factors};
+use crate::trans_spline::{
+    create_line_with_spline, make_control_factors, spline_to_bezier, BezierPath, BezierTolerance,
+};
 use crate::util::psfonts::{unpsfont_clear, PS_FONT_NAMES};
 use crate::util::texfonts::{put_string, tex_font_index, TexFonts};
 use crate::{fprintf, Driver, Out};
@@ -72,7 +87,63 @@ pub struct Asy {
     defined: HashSet<(i32, [u8; 3])>,
     /// The figure's bounds in Fig units, with the border.
     bounds: (i32, i32, i32, i32),
+    /// `-S`: how splines are written.
+    spline_mode: SplineMode,
+    /// The helper that joins long paths is in the output.
+    join_defined: bool,
+    /// The helper `bspline` is in the output.
+    bspline_defined: bool,
 }
+
+/// `-S`: how a spline becomes an Asymptote path.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SplineMode {
+    /// The Fig points kept: an approximated spline as the B-spline of its
+    /// points, any other as one cubic per segment with the points as nodes.
+    #[default]
+    Guide,
+    /// As `Guide`, but an interpolated spline as Hobby's curve through its
+    /// points (Asymptote's `..`), which can differ visibly from xfig's.
+    Hobby,
+    /// Cubics split until within 0.5 Fig units of xfig's X-spline.
+    Exact,
+}
+
+/// A Bézier segment may stray this far from xfig's curve where `guide`
+/// cannot use the guiding points (mixed shape factors):
+/// 6 Fig units or 2 % of its chord.
+const LOOSE: BezierTolerance = BezierTolerance { abs: 6.0, rel: 0.02 };
+/// ... and this far in `exact` mode.
+const TIGHT: BezierTolerance = BezierTolerance { abs: 0.5, rel: 0.0 };
+/// Segments per piece of a long Bézier path.
+const CHUNK: usize = 100;
+
+/// The helper `bspline`: the uniform cubic B-spline of the guiding points
+/// (open: the ends are pinned to the first and last point).
+const BSPLINE_DEF: &str = "\
+path bspline(pair[] p, bool closed=false) {
+  pair[] q;
+  if(closed) q=copy(p);
+  else { q.push(p[0]); q.push(p[0]); for(pair z: p) q.push(z); q.push(p[p.length-1]); q.push(p[p.length-1]); }
+  int n=q.length;
+  int last=closed ? n : n-2;
+  guide g;
+  for(int i=closed ? 0 : 1; i < last; ++i) {
+    pair a=q[(i+n-1)%n], b=q[i%n], c=q[(i+1)%n], d=q[(i+2)%n];
+    pair c1=(2*b+c)/3, c2=(b+2*c)/3, e=(b+4*c+d)/6;
+    if(i == (closed ? 0 : 1)) g=(a+4*b+c)/6;
+    if(closed && i == n-1) g=g..controls c1 and c2..cycle;
+    else g=g..controls c1 and c2..e;
+  }
+  return g;
+}
+";
+
+/// The helper `xfigjoin`: the pieces of a long path joined one after the
+/// other (a chain of `&` in one expression overflows asy's parser).
+const JOIN_DEF: &str = "\
+path xfigjoin(path[] p) { path r=p[0]; for(int i=1; i < p.length; ++i) r=r&p[i]; return r; }
+";
 
 impl Default for Asy {
     fn default() -> Asy {
@@ -90,6 +161,9 @@ impl Default for Asy {
             fontmag: 1.0,
             defined: HashSet::new(),
             bounds: (0, 0, 0, 0),
+            spline_mode: SplineMode::default(),
+            join_defined: false,
+            bspline_defined: false,
         }
     }
 }
@@ -622,6 +696,284 @@ impl Asy {
     }
 }
 
+impl Asy {
+    /// A line, polygon or box (or a spline's line); `path` replaces the
+    /// path of a polyline or polygon (a spline's curve).
+    fn line_with_path(&mut self, ctx: &mut Ctx, out: &mut Out, l: &Line, path: Option<String>) -> Result<(), String> {
+        comments(out, &l.comments);
+        let Some(&p) = l.points.first() else {
+            return Ok(());
+        };
+        let q = l.points.get(1).copied();
+        let r = l.points.get(2).copied();
+        let pen_rgb = color(ctx, l.pen_color);
+
+        // One or two points: only a polyline is drawn.
+        let (Some(_), Some(r)) = (q, r) else {
+            if l.thickness <= 0 || l.type_ != T_POLYLINE {
+                return Ok(());
+            }
+            let stroke = self.stroke_pen(
+                ctx,
+                l.thickness,
+                l.pen_color,
+                l.style,
+                l.style_val,
+                l.cap_style,
+                l.join_style,
+            );
+            let end = q.unwrap_or(p);
+            // A zero-length line shows only with round caps.
+            if end == p && l.cap_style != 1 {
+                return Ok(());
+            }
+            let heads = self.line_heads(ctx, &[p, end], l.thickness, l.for_arrow.as_ref(), l.back_arrow.as_ref());
+            let path = format!("{}--{}", pt(p), pt(end));
+            self.shape(
+                out,
+                &path,
+                false,
+                &Fill::None,
+                Some(&stroke),
+                heads,
+                pen_rgb,
+                l.pen_color,
+            );
+            return Ok(());
+        };
+        if l.type_ == T_PIC_BOX {
+            if let Some(pic) = &l.pic {
+                self.picture(out, p, r, pic);
+            }
+            return Ok(());
+        }
+        let has_arrow = l.for_arrow.is_some() || l.back_arrow.is_some();
+        if l.thickness <= 0 && l.fill_style == UNFILLED && !has_arrow {
+            return Ok(());
+        }
+        let fill = self.fill_of(ctx, l.fill_style, l.pen_color, l.fill_color);
+        let stroke = (l.thickness > 0).then(|| {
+            self.stroke_pen(
+                ctx,
+                l.thickness,
+                l.pen_color,
+                l.style,
+                l.style_val,
+                l.cap_style,
+                l.join_style,
+            )
+        });
+        let mut heads = Vec::new();
+        let path = match l.type_ {
+            T_BOX => format!("box({},{})", pt(p), pt(r)),
+            T_ARC_BOX => Asy::round_box(p, r, l.radius),
+            T_POLYGON if path.is_some() => path.unwrap_or_default(),
+            T_POLYGON => {
+                // Polygons repeat the first point at the end.
+                let n = if l.points.last() == Some(&p) && l.points.len() > 1 {
+                    l.points.len() - 1
+                } else {
+                    l.points.len()
+                };
+                poly_path(l.points.get(..n).unwrap_or(&l.points), true, "    ")
+            }
+            _ => {
+                if l.thickness > 0 {
+                    heads = self.line_heads(ctx, &l.points, l.thickness, l.for_arrow.as_ref(), l.back_arrow.as_ref());
+                }
+                path.unwrap_or_else(|| poly_path(&l.points, false, "    "))
+            }
+        };
+        self.shape(
+            out,
+            &path,
+            l.type_ != T_POLYLINE,
+            &fill,
+            stroke.as_deref(),
+            heads,
+            pen_rgb,
+            l.pen_color,
+        );
+        Ok(())
+    }
+}
+
+impl Asy {
+    /// The path of spline `s` in the chosen mode; `None` (the polyline is
+    /// drawn) for a spline that cannot be fitted.
+    fn spline_path(&mut self, out: &mut Out, s: &Spline) -> Option<String> {
+        let tol = if self.spline_mode == SplineMode::Exact {
+            TIGHT
+        } else {
+            LOOSE
+        };
+        if self.spline_mode != SplineMode::Exact {
+            match guide_kind(s) {
+                GuideKind::Approximating => return Some(self.bspline_expr(out, s)),
+                // (Arrowheads follow xfig's curve, so a spline with heads
+                // keeps the cubics through its points.)
+                GuideKind::Interpolating
+                    if self.spline_mode == SplineMode::Hobby && s.for_arrow.is_none() && s.back_arrow.is_none() =>
+                {
+                    return Some(hobby_path(s));
+                }
+                GuideKind::Interpolating if self.spline_mode == SplineMode::Hobby => {
+                    let path = self.bezier_expr(out, &spline_to_bezier(s, LOOSE)?);
+                    return Some(format!(
+                        "// Arrowheads: written as Bézier segments, not as Hobby's curve.\n    {path}"
+                    ));
+                }
+                GuideKind::Interpolating => {
+                    let path = spline_to_bezier(s, LOOSE)?;
+                    return Some(self.bezier_expr(out, &path));
+                }
+                GuideKind::Mixed => {
+                    let path = self.bezier_expr(out, &spline_to_bezier(s, LOOSE)?);
+                    return Some(format!(
+                        "// Mixed shape factors: written as Bézier segments, not as guiding points.\n    {path}"
+                    ));
+                }
+            }
+        }
+        let path = spline_to_bezier(s, tol)?;
+        Some(self.bezier_expr(out, &path))
+    }
+
+    /// `bspline(new pair[]{points}, closed)`, defining the helper first.
+    fn bspline_expr(&mut self, out: &mut Out, s: &Spline) -> String {
+        if !self.bspline_defined {
+            self.bspline_defined = true;
+            out.puts(BSPLINE_DEF);
+        }
+        let list = join_points(s.points.iter().map(|&p| pt(p)), ",", "    ");
+        format!("bspline(new pair[]{{{list}}},{})", s.closed_spline())
+    }
+
+    /// A Bézier path as `a..controls c and d..b--e..`, in pieces of
+    /// [`CHUNK`] segments joined by `xfigjoin` when it is long.
+    fn bezier_expr(&mut self, out: &mut Out, p: &BezierPath) -> String {
+        let node = |q: (f64, f64)| pt_f(q.0, q.1);
+        let n = p.segments.len();
+        // A short closed path ends in `cycle`; pieces of a long one end in
+        // the start node and `&cycle` closes the whole.
+        let long = n > CHUNK;
+        let mut tokens = Vec::with_capacity(n);
+        for (i, g) in p.segments.iter().enumerate() {
+            let last_closed = p.closed && i + 1 == n && !long;
+            let end = if last_closed { "cycle".to_string() } else { node(g.end) };
+            let end = if p.closed && i + 1 == n && long {
+                node(p.start)
+            } else {
+                end
+            };
+            tokens.push(if g.straight {
+                format!("--{end}")
+            } else {
+                format!("..controls {} and {}..{end}", node(g.c1), node(g.c2))
+            });
+        }
+        let chunks: Vec<String> = if long {
+            tokens
+                .chunks(CHUNK)
+                .enumerate()
+                .map(|(i, c)| {
+                    let start = if i == 0 {
+                        node(p.start)
+                    } else {
+                        // The previous piece's end node.
+                        p.segments.get(i * CHUNK - 1).map_or_else(String::new, |g| node(g.end))
+                    };
+                    wrap_tokens(&start, c, "    ")
+                })
+                .collect()
+        } else {
+            vec![wrap_tokens(&node(p.start), &tokens, "    ")]
+        };
+        if !long {
+            return chunks.concat();
+        }
+        if !self.join_defined {
+            self.join_defined = true;
+            out.puts(JOIN_DEF);
+        }
+        let list = chunks.join(",\n    ");
+        let closing = if p.closed { "&cycle" } else { "" };
+        format!("xfigjoin(new path[]{{\n    {list}}}){closing}")
+    }
+}
+
+/// `first` and the `tokens` after it, broken into lines at tokens.
+fn wrap_tokens(first: &str, tokens: &[String], indent: &str) -> String {
+    let mut s = first.to_string();
+    let mut line = indent.len() + first.len();
+    for t in tokens {
+        if line + t.len() > MAX_LINE {
+            s.push('\n');
+            s.push_str(indent);
+            line = indent.len();
+        }
+        line += t.len();
+        s.push_str(t);
+    }
+    s
+}
+
+/// What the guiding points of a spline are for.
+#[derive(Debug, PartialEq, Eq)]
+enum GuideKind {
+    /// Shape factor 1 at every point (open: 0 at the ends): xfig's
+    /// approximating spline.
+    Approximating,
+    /// Shape factor -1 at every point (open: 0 at the ends).
+    Interpolating,
+    Mixed,
+}
+
+fn guide_kind(s: &Spline) -> GuideKind {
+    let n = s.points.len();
+    let inner = |i: usize| !s.open_spline() || (i > 0 && i + 1 < n);
+    let ok = |want: &dyn Fn(f64) -> bool| {
+        n >= 3
+            && s.controls.len() == n
+            && s.controls
+                .iter()
+                .enumerate()
+                .all(|(i, c)| if inner(i) { want(c.s) } else { c.s == 0.0 })
+    };
+    // Approximated: shape factor 1 (xfig's S_SPLINE_APPROX); interpolated:
+    // any negative factor (xfig writes -0.5, S_SPLINE_INTERP; -1 is the
+    // tightest).
+    if ok(&|v| v == 1.0) {
+        GuideKind::Approximating
+    } else if ok(&|v| v < 0.0) {
+        GuideKind::Interpolating
+    } else {
+        GuideKind::Mixed
+    }
+}
+
+/// Asymptote's own curve through the points: `..`, and `--` next to a
+/// corner (shape factor 0 inside the spline); closed paths end in `cycle`.
+fn hobby_path(s: &Spline) -> String {
+    let n = s.points.len();
+    let closed = s.closed_spline();
+    let corner = |i: usize| s.controls.get(i).is_some_and(|c| c.s == 0.0) && (closed || (i > 0 && i + 1 < n));
+    let mut tokens: Vec<String> = Vec::new();
+    let segs = if closed { n } else { n - 1 };
+    for i in 0..segs {
+        let j = (i + 1) % n;
+        let sep = if corner(i) || corner(j) { "--" } else { ".." };
+        let target = if closed && j == 0 {
+            "cycle".to_string()
+        } else {
+            s.points.get(j).map_or_else(String::new, |&q| pt(q))
+        };
+        tokens.push(format!("{sep}{target}"));
+    }
+    let first = s.points.first().map_or_else(String::new, |&q| pt(q));
+    wrap_tokens(&first, &tokens, "    ")
+}
+
 impl Driver for Asy {
     fn option(&mut self, ctx: &mut Ctx, opt: char, arg: Option<&str>) -> Result<(), String> {
         let a = arg.unwrap_or("");
@@ -653,6 +1005,15 @@ impl Driver for Asy {
             'O' => self.allspecial = true,
             'o' => self.select_fontsize = false,
             'T' => self.only_texfonts = true,
+            // how splines are written
+            'S' => {
+                self.spline_mode = match a {
+                    "exact" => SplineMode::Exact,
+                    "guide" => SplineMode::Guide,
+                    "hobby" => SplineMode::Hobby,
+                    _ => return Err(format!("asy: -S takes guide, hobby or exact, not \"{a}\".")),
+                };
+            }
             // remove the suffix from included graphics files
             'w' => self.removesuffix = true,
             'G' | 'L' => {}
@@ -830,115 +1191,30 @@ impl Driver for Asy {
     }
 
     fn line(&mut self, ctx: &mut Ctx, out: &mut Out, l: &Line) -> Result<(), String> {
-        comments(out, &l.comments);
-        let Some(&p) = l.points.first() else {
-            return Ok(());
-        };
-        let q = l.points.get(1).copied();
-        let r = l.points.get(2).copied();
-        let pen_rgb = color(ctx, l.pen_color);
-
-        // One or two points: only a polyline is drawn.
-        let (Some(_), Some(r)) = (q, r) else {
-            if l.thickness <= 0 || l.type_ != T_POLYLINE {
-                return Ok(());
-            }
-            let stroke = self.stroke_pen(
-                ctx,
-                l.thickness,
-                l.pen_color,
-                l.style,
-                l.style_val,
-                l.cap_style,
-                l.join_style,
-            );
-            let end = q.unwrap_or(p);
-            // A zero-length line shows only with round caps.
-            if end == p && l.cap_style != 1 {
-                return Ok(());
-            }
-            let heads = self.line_heads(ctx, &[p, end], l.thickness, l.for_arrow.as_ref(), l.back_arrow.as_ref());
-            let path = format!("{}--{}", pt(p), pt(end));
-            self.shape(
-                out,
-                &path,
-                false,
-                &Fill::None,
-                Some(&stroke),
-                heads,
-                pen_rgb,
-                l.pen_color,
-            );
-            return Ok(());
-        };
-        if l.type_ == T_PIC_BOX {
-            if let Some(pic) = &l.pic {
-                self.picture(out, p, r, pic);
-            }
-            return Ok(());
-        }
-        let has_arrow = l.for_arrow.is_some() || l.back_arrow.is_some();
-        if l.thickness <= 0 && l.fill_style == UNFILLED && !has_arrow {
-            return Ok(());
-        }
-        let fill = self.fill_of(ctx, l.fill_style, l.pen_color, l.fill_color);
-        let stroke = (l.thickness > 0).then(|| {
-            self.stroke_pen(
-                ctx,
-                l.thickness,
-                l.pen_color,
-                l.style,
-                l.style_val,
-                l.cap_style,
-                l.join_style,
-            )
-        });
-        let mut heads = Vec::new();
-        let path = match l.type_ {
-            T_BOX => format!("box({},{})", pt(p), pt(r)),
-            T_ARC_BOX => Asy::round_box(p, r, l.radius),
-            T_POLYGON => {
-                // Polygons repeat the first point at the end.
-                let n = if l.points.last() == Some(&p) && l.points.len() > 1 {
-                    l.points.len() - 1
-                } else {
-                    l.points.len()
-                };
-                poly_path(l.points.get(..n).unwrap_or(&l.points), true, "    ")
-            }
-            _ => {
-                if l.thickness > 0 {
-                    heads = self.line_heads(ctx, &l.points, l.thickness, l.for_arrow.as_ref(), l.back_arrow.as_ref());
-                }
-                poly_path(&l.points, false, "    ")
-            }
-        };
-        self.shape(
-            out,
-            &path,
-            l.type_ != T_POLYLINE,
-            &fill,
-            stroke.as_deref(),
-            heads,
-            pen_rgb,
-            l.pen_color,
-        );
-        Ok(())
+        self.line_with_path(ctx, out, l, None)
     }
 
-    /// Splines of files before 3.2 (the reader turns the others into
-    /// polylines): drawn as the X-spline of their kind.
+    /// A spline: the shaft and fill are a native Asymptote path (see the
+    /// module doc and `-S`); the arrowheads are placed from the flattened
+    /// curve, as for every other driver.
     fn spline(&mut self, ctx: &mut Ctx, out: &mut Out, s: &Spline) -> Result<(), String> {
         let mut s = s.clone();
-        make_control_factors(&mut s);
-        match create_line_with_spline(ctx, &s) {
-            Some(l) => self.line(ctx, out, &l),
-            None => {
-                comments(out, &s.comments);
-                ctx.warn("Unable to convert spline to line, dropped.");
-                Ok(())
-            }
+        // Splines of old files get the shape factors of their type; a Fig
+        // 3.2 spline brings its own.
+        if s.controls.len() != s.points.len() || !(s.x_spline() || ctx.v32_flag) {
+            make_control_factors(&mut s);
         }
+        let Some(l) = create_line_with_spline(ctx, &s) else {
+            comments(out, &s.comments);
+            ctx.warn("Unable to convert spline to line, dropped.");
+            return Ok(());
+        };
+        let path = self.spline_path(out, &s);
+        self.line_with_path(ctx, out, &l, path)
+    }
+
+    fn keeps_splines(&self) -> bool {
+        true
     }
 
     fn text(&mut self, ctx: &mut Ctx, out: &mut Out, t: &Text) -> Result<(), String> {

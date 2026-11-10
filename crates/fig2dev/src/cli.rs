@@ -540,6 +540,7 @@ fn run_inner(io: &mut Io, args: Vec<String>) -> Result<u8, Exit> {
         return Err(Exit(format!("fig2dev: no writer for {lang}")));
     };
 
+    ctx.keep_splines = dev.keeps_splines();
     // Read the figure with fig2dev's reader: its checks, repairs and
     // messages.
     let Some(objects) = read_figure(io, &mut ctx, from.map(String::as_str)) else {

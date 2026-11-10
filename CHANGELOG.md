@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.14 — 2026-11-10
+
+- Asymptote: splines are vector paths again. The driver `keeps_splines` (new `Driver::keeps_splines`, default `false`; new `Ctx::keep_splines`, which the fig2dev program and the tests set from it before reading, and which `trans_spline::splines_to_lines` honors), so the reader no longer flattens Fig 3.2 splines for it, and `spline` writes Asymptote's own path syntax with the Fig points as nodes: `..controls a and b..` Béziers, `--` for straight pieces, `cycle` for closed splines. Box, polygon, circle, ellipse, arc and rounded box keep their native forms. Every other driver's output is unchanged; the header's bounds are those of the flattened curve as before. Arrowheads are still computed from the flattened curve, so they do not move.
+- New asy option `-S guide|hobby|exact` (also in the driver's help table, so RustFig accepts it). `guide` (default) keeps the Fig points in the file: an approximated spline (shape factor 1) is `bspline(new pair[]{...}, closed)`, the uniform cubic B-spline of the points (a helper defined once in the file; it does not pass through them, like xfig's, and stays within about 1 % of the figure's size of it), and an interpolated one (-1) or one with mixed shape factors is written as one cubic `..controls a and b..` per X-spline segment (end points on the curve, controls from its tangents, lengths fitted by least squares; split in halves only where more than max(6 Fig units, 2 % of the chord) off) with a comment for mixed ones; the Fig points are its nodes. `hobby`: as `guide`, but an interpolated spline is Asymptote's `..` curve through the points (`--` next to corners), Hobby's curve, which can be visibly rounder than xfig's (a spline with arrowheads keeps the cubics, since the heads follow xfig's curve). `exact` writes every spline as such cubics, split until within 0.5 Fig units of xfig's curve. Long exact paths are joined from pieces (`xfigjoin`) because asy's parser overflows on long chains.
+- `trans_spline::spline_to_bezier` (`BezierPath`, `BezierTolerance`): an X-spline as a path of cubic Béziers.
+- Objects of one depth: a spline now comes after the lines of its depth in the asy output (xfig's order of lists), where it was a line in file order before.
+
 ## 0.9.13 — 2026-11-06
 
 - PDF: a page names only the standard fonts its text uses (all 14 were always listed): the graphics part of `pdftex`, which has no text, names none, so font checks no longer report 14 fonts that are not embedded.

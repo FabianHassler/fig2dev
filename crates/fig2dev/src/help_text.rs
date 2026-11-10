@@ -44,6 +44,10 @@ pub const VECTOR: &[(&[&str], &str)] = &[
   -O          do not quote characters special to TeX/LaTeX
                 (effectively, set the text flag "TeX" for all text)
   -o          do not set the font size
+  -S mode     write splines as guide (default: the Fig points kept, B-spline or
+                Bezier segments through them), hobby (Hobby's curve through the
+                points of interpolated splines) or exact (within 0.5 units of
+                xfig's curve)
   -T          only use TeX fonts (even when PS-fonts are specified)
   -w          remove suffix from included graphics-files
 "####,

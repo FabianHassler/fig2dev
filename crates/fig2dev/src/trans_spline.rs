@@ -234,6 +234,12 @@ fn blend(k: i32, t: f64, s1: f64, s2: f64) -> [f64; 4] {
 
 /// `point_computing`: the weighted mean of the four control points.
 fn point_computing(a: &[f64; 4], p: &[Point; 4]) -> (i32, i32) {
+    let (x, y) = point_computing_f(a, p);
+    (crate::round(x), crate::round(y))
+}
+
+/// `point_computing` before the rounding.
+fn point_computing_f(a: &[f64; 4], p: &[Point; 4]) -> (f64, f64) {
     let w = a[0] + a[1] + a[2] + a[3];
     let num = |f: fn(&Point) -> i32| {
         a[3].mul_add(
@@ -241,7 +247,7 @@ fn point_computing(a: &[f64; 4], p: &[Point; 4]) -> (i32, i32) {
             a[2].mul_add(f(&p[2]) as f64, a[0].mul_add(f(&p[0]) as f64, a[1] * f(&p[1]) as f64)),
         )
     };
-    (crate::round(num(|q| q.x) / w), crate::round(num(|q| q.y) / w))
+    (num(|q| q.x) / w, num(|q| q.y) / w)
 }
 
 /// `step_computing`: the parameter step for the segment from `p1` to
@@ -383,12 +389,345 @@ pub fn create_line_with_spline(ctx: &mut Ctx, s: &Spline) -> Option<Line> {
     })
 }
 
+/// One cubic Bézier segment of a spline path: the control points and the
+/// end point (the start is the previous segment's end).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BezierSegment {
+    pub c1: (f64, f64),
+    pub c2: (f64, f64),
+    pub end: (f64, f64),
+    /// The segment is a straight line (both controls on the chord).
+    pub straight: bool,
+}
+
+/// A spline as a path of cubic Béziers.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BezierPath {
+    pub start: (f64, f64),
+    pub segments: Vec<BezierSegment>,
+    /// A closed spline: the last segment returns to `start`.
+    pub closed: bool,
+    /// Segments that were split in two or more pieces to stay within the
+    /// tolerance.
+    pub splits: usize,
+}
+
+/// How far a Bézier path may stray from the X-spline: `max(abs, rel *
+/// chord)` for a segment whose chord is that long.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BezierTolerance {
+    pub abs: f64,
+    pub rel: f64,
+}
+
+/// Samples per segment and per Bézier polyline when measuring the error.
+const FIT_SAMPLES: usize = 16;
+const FIT_DENSE: usize = 128;
+/// The deepest halving of a segment's parameter interval.
+const MAX_SPLIT_DEPTH: u32 = 6;
+
+/// The X-spline curve of one segment at parameter `t` (not rounded).
+fn curve_at(k: i32, seg: &Segment, t: f64) -> (f64, f64) {
+    point_computing_f(&blend(k, t, seg.s1, seg.s2), &seg.p)
+}
+
+/// The derivative of the curve at `t` by differences (one-sided at the
+/// ends, where the blending functions are defined only inside `[0, 1]`).
+fn curve_slope(k: i32, seg: &Segment, t: f64) -> (f64, f64) {
+    const H: f64 = 1e-4;
+    let at = |t: f64| curve_at(k, seg, t);
+    if t < H {
+        let (a, b, c) = (at(t), at(t + H), at(t + 2.0 * H));
+        (
+            (-3.0 * a.0 + 4.0 * b.0 - c.0) / (2.0 * H),
+            (-3.0 * a.1 + 4.0 * b.1 - c.1) / (2.0 * H),
+        )
+    } else if t > 1.0 - H {
+        let (a, b, c) = (at(t), at(t - H), at(t - 2.0 * H));
+        (
+            (3.0 * a.0 - 4.0 * b.0 + c.0) / (2.0 * H),
+            (3.0 * a.1 - 4.0 * b.1 + c.1) / (2.0 * H),
+        )
+    } else {
+        let (a, b) = (at(t - H), at(t + H));
+        ((b.0 - a.0) / (2.0 * H), (b.1 - a.1) / (2.0 * H))
+    }
+}
+
+fn dist_to_segment(p: (f64, f64), a: (f64, f64), b: (f64, f64)) -> f64 {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len2 = dx * dx + dy * dy;
+    let u = if len2 > 0.0 {
+        (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / len2).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    (p.0 - a.0 - u * dx).hypot(p.1 - a.1 - u * dy)
+}
+
+/// The largest distance of a point of `pts` from the polyline `poly`.
+fn max_dist(pts: &[(f64, f64)], poly: &[(f64, f64)]) -> f64 {
+    pts.iter()
+        .map(|&p| {
+            poly.windows(2)
+                .map(|w| dist_to_segment(p, w[0], w[1]))
+                .fold(f64::INFINITY, f64::min)
+        })
+        .fold(0.0, f64::max)
+}
+
+fn bezier_at(p0: (f64, f64), c1: (f64, f64), c2: (f64, f64), p1: (f64, f64), u: f64) -> (f64, f64) {
+    let v = 1.0 - u;
+    let (a, b, c, d) = (v * v * v, 3.0 * v * v * u, 3.0 * v * u * u, u * u * u);
+    (
+        a * p0.0 + b * c1.0 + c * c2.0 + d * p1.0,
+        a * p0.1 + b * c1.1 + c * c2.1 + d * p1.1,
+    )
+}
+
+/// The Hausdorff-style distance between the cubic and the curve between
+/// `t0` and `t1`.
+fn fit_error(k: i32, seg: &Segment, t0: f64, t1: f64, b: [(f64, f64); 4]) -> f64 {
+    let u = |i: usize| i as f64 / FIT_DENSE as f64;
+    let curve: Vec<(f64, f64)> = (0..=FIT_DENSE)
+        .map(|i| curve_at(k, seg, t0 + (t1 - t0) * u(i)))
+        .collect();
+    let cubic: Vec<(f64, f64)> = (0..=FIT_DENSE)
+        .map(|i| bezier_at(b[0], b[1], b[2], b[3], u(i)))
+        .collect();
+    let every = FIT_DENSE / FIT_SAMPLES;
+    let curve_samples: Vec<_> = curve.iter().step_by(every).copied().collect();
+    let cubic_samples: Vec<_> = cubic.iter().step_by(every).copied().collect();
+    max_dist(&curve_samples, &cubic).max(max_dist(&cubic_samples, &curve))
+}
+
+/// The unit tangent of the curve at `t0` (`forward`) or `t1`: from the
+/// derivative, or, where that vanishes (a corner), from the curve nearby.
+fn unit_tangent(k: i32, seg: &Segment, t: f64, forward: bool, at: (f64, f64)) -> Option<(f64, f64)> {
+    let d = curve_slope(k, seg, t);
+    let len = d.0.hypot(d.1);
+    if len > 1e-3 {
+        return Some((d.0 / len, d.1 / len));
+    }
+    let near = curve_at(k, seg, if forward { t + 0.05 } else { t - 0.05 });
+    let (dx, dy) = (near.0 - at.0, near.1 - at.1);
+    let len = dx.hypot(dy);
+    (len > 1e-9).then(|| (dx / len, dy / len))
+}
+
+/// Control points on the curve's end tangents at the distances that fit
+/// the curve best in the least-squares sense (Schneider, "An algorithm for
+/// automatically fitting digitized curves", Graphics Gems, 1990), with the
+/// samples placed by chord length. `None` if the system is singular or a
+/// distance comes out non-positive.
+fn fit_tangent_lengths(
+    k: i32,
+    seg: &Segment,
+    (t0, t1): (f64, f64),
+    (p0, p1): ((f64, f64), (f64, f64)),
+) -> Option<[(f64, f64); 2]> {
+    const N: usize = 24;
+    let pts: Vec<(f64, f64)> = (0..=N)
+        .map(|i| curve_at(k, seg, t0 + (t1 - t0) * i as f64 / N as f64))
+        .collect();
+    let mut u = vec![0.0; pts.len()];
+    for i in 1..pts.len() {
+        let (a, b) = (*pts.get(i - 1)?, *pts.get(i)?);
+        *u.get_mut(i)? = *u.get(i - 1)? + (b.0 - a.0).hypot(b.1 - a.1);
+    }
+    let total = *u.last()?;
+    if total < 1e-9 {
+        return None;
+    }
+    let e0 = unit_tangent(k, seg, t0, true, p0)?;
+    let e1 = unit_tangent(k, seg, t1, false, p1)?;
+    // c1 = p0 + a1 * e0, c2 = p1 - a2 * e1
+    let (mut c00, mut c01, mut c11, mut x0, mut x1) = (0.0, 0.0, 0.0, 0.0, 0.0);
+    for (q, ui) in pts.iter().zip(&u) {
+        let ui = ui / total;
+        let v = 1.0 - ui;
+        let (b0, b1, b2, b3) = (v * v * v, 3.0 * v * v * ui, 3.0 * v * ui * ui, ui * ui * ui);
+        let a1 = (e0.0 * b1, e0.1 * b1);
+        let a2 = (-e1.0 * b2, -e1.1 * b2);
+        c00 += a1.0 * a1.0 + a1.1 * a1.1;
+        c01 += a1.0 * a2.0 + a1.1 * a2.1;
+        c11 += a2.0 * a2.0 + a2.1 * a2.1;
+        let r = (
+            q.0 - (p0.0 * (b0 + b1) + p1.0 * (b2 + b3)),
+            q.1 - (p0.1 * (b0 + b1) + p1.1 * (b2 + b3)),
+        );
+        x0 += a1.0 * r.0 + a1.1 * r.1;
+        x1 += a2.0 * r.0 + a2.1 * r.1;
+    }
+    let det = c00 * c11 - c01 * c01;
+    if det.abs() < 1e-12 * (c00 * c11).abs().max(1e-30) {
+        return None;
+    }
+    let alpha1 = (x0 * c11 - x1 * c01) / det;
+    let alpha2 = (c00 * x1 - c01 * x0) / det;
+    let eps = 1e-3 * total;
+    if !(alpha1.is_finite() && alpha2.is_finite()) || alpha1 < eps || alpha2 < eps {
+        return None;
+    }
+    Some([
+        (p0.0 + alpha1 * e0.0, p0.1 + alpha1 * e0.1),
+        (p1.0 - alpha2 * e1.0, p1.1 - alpha2 * e1.1),
+    ])
+}
+
+/// Fits cubics to the parameter interval `t0..t1` of one segment (from `p0`
+/// to `p1`), halving it while the error exceeds `tol`; `None` if the curve
+/// is not finite.
+#[allow(clippy::too_many_arguments)]
+fn fit_segment(
+    k: i32,
+    seg: &Segment,
+    (t0, t1): (f64, f64),
+    (p0, p1): ((f64, f64), (f64, f64)),
+    tol: BezierTolerance,
+    depth: u32,
+    out: &mut Vec<BezierSegment>,
+) -> Option<()> {
+    let hermite = {
+        let (d0, d1) = (curve_slope(k, seg, t0), curve_slope(k, seg, t1));
+        let h = (t1 - t0) / 3.0;
+        [(p0.0 + d0.0 * h, p0.1 + d0.1 * h), (p1.0 - d1.0 * h, p1.1 - d1.1 * h)]
+    };
+    let mut best = hermite;
+    let mut best_err = None;
+    if hermite.iter().any(|c| !c.0.is_finite() || !c.1.is_finite()) {
+        return None;
+    }
+    // The X-spline's blending is not a cubic polynomial in `t`: the
+    // tangent lengths that fit best are found by least squares.
+    let fitted = fit_tangent_lengths(k, seg, (t0, t1), (p0, p1));
+    for cand in std::iter::once(hermite).chain(fitted) {
+        let e = fit_error(k, seg, t0, t1, [p0, cand[0], cand[1], p1]);
+        if best_err.is_none_or(|b| e < b) {
+            best = cand;
+            best_err = Some(e);
+        }
+    }
+    let [c1, c2] = best;
+    let chord = (p1.0 - p0.0).hypot(p1.1 - p0.1);
+    let allowed = tol.abs.max(tol.rel * chord);
+    if depth >= MAX_SPLIT_DEPTH || best_err.is_some_and(|e| e <= allowed) {
+        // Straight: both controls within a quarter unit of the chord and
+        // between its ends.
+        let straight = if chord < 1e-9 {
+            c1 == p0 && c2 == p0
+        } else {
+            let (ux, uy) = ((p1.0 - p0.0) / chord, (p1.1 - p0.1) / chord);
+            [c1, c2].iter().all(|c| {
+                let (dx, dy) = (c.0 - p0.0, c.1 - p0.1);
+                let along = dx * ux + dy * uy;
+                (dx * uy - dy * ux).abs() <= 0.25 && along >= -0.25 && along <= chord + 0.25
+            })
+        };
+        // A zero-length piece (coincident points) adds nothing.
+        if straight && chord < 1e-9 {
+            return Some(());
+        }
+        out.push(BezierSegment {
+            c1,
+            c2,
+            end: p1,
+            straight,
+        });
+        return Some(());
+    }
+    let tm = 0.5 * (t0 + t1);
+    let pm = curve_at(k, seg, tm);
+    fit_segment(k, seg, (t0, tm), (p0, pm), tol, depth + 1, out)?;
+    fit_segment(k, seg, (tm, t1), (pm, p1), tol, depth + 1, out)
+}
+
+/// The segments of the X-spline `s` as `compute_open_spline` and
+/// `compute_closed_spline` walk them, each with its `k`.
+fn spline_segments(s: &Spline) -> Option<Vec<(i32, Segment)>> {
+    let n = s.points.len();
+    let factors = shape_factors(s);
+    let mut v = Vec::new();
+    if s.open_spline() {
+        if n < 3 {
+            return None;
+        }
+        for kk in 0..=n - 3 {
+            v.push((
+                kk as i32,
+                segment(s, &factors, [kk.saturating_sub(1), kk, kk + 1, kk + 2])?,
+            ));
+        }
+        v.push(((n - 3) as i32, segment(s, &factors, [n - 3, n - 2, n - 1, n - 1])?));
+    } else {
+        if n < 3 {
+            return None;
+        }
+        for k in 0..n {
+            v.push((
+                k as i32,
+                segment(s, &factors, [k, (k + 1) % n, (k + 2) % n, (k + 3) % n])?,
+            ));
+        }
+    }
+    Some(v)
+}
+
+/// The X-spline `s` as a path of cubic Béziers: one per segment between
+/// two of its points (a segment is split in halves, up to six times, while
+/// the cubic strays more than `tol` from the curve). The ends of a segment
+/// are the curve's points there and the controls come from its tangents.
+/// `None` for a spline with fewer than two points (three if closed) or
+/// non-finite shape factors.
+pub fn spline_to_bezier(s: &Spline, tol: BezierTolerance) -> Option<BezierPath> {
+    if s.points.len() < 2 || s.controls.iter().any(|c| !c.s.is_finite()) {
+        return None;
+    }
+    let closed = s.closed_spline();
+    if s.points.len() == 2 && !closed {
+        let (a, b) = (s.points.first()?, s.points.get(1)?);
+        let (a, b) = ((f64::from(a.x), f64::from(a.y)), (f64::from(b.x), f64::from(b.y)));
+        return Some(BezierPath {
+            start: a,
+            segments: vec![BezierSegment {
+                c1: a,
+                c2: b,
+                end: b,
+                straight: true,
+            }],
+            closed,
+            splits: 0,
+        });
+    }
+    let segs = spline_segments(s)?;
+    let (k0, first) = segs.first()?;
+    let start = curve_at(*k0, first, 0.0);
+    let mut path = BezierPath {
+        start,
+        segments: Vec::new(),
+        closed,
+        splits: 0,
+    };
+    let mut at = start;
+    for (k, seg) in &segs {
+        let end = curve_at(*k, seg, 1.0);
+        let before = path.segments.len();
+        fit_segment(*k, seg, (0.0, 1.0), (at, end), tol, 0, &mut path.segments)?;
+        if path.segments.len() > before + 1 {
+            path.splits += 1;
+        }
+        at = end;
+    }
+    Some(path)
+}
+
 /// A figure built in memory as the drivers expect it: every spline of
 /// `com` and of its compounds becomes a line (a polyline or polygon) as the
 /// reader does for a Fig 3.2 file (`ctx.v32_flag`; otherwise only X-splines,
 /// the others keep their controls), appended after the compound's lines. A spline that can't be converted
 /// (coincident points, non-finite shape factors, too few points) is
-/// dropped, with the reader's message in `ctx.messages`.
+/// dropped, with the reader's message in `ctx.messages`. With
+/// `ctx.keep_splines` the valid ones stay splines.
 pub fn splines_to_lines(ctx: &mut Ctx, com: &Compound) -> Compound {
     let mut out = Compound {
         compounds: com.compounds.iter().map(|c| splines_to_lines(ctx, c)).collect(),
@@ -408,6 +747,9 @@ pub fn splines_to_lines(ctx: &mut Ctx, com: &Compound) -> Compound {
             continue;
         }
         match create_line_with_spline(ctx, s) {
+            // A driver that draws splines itself (`Ctx::keep_splines`)
+            // gets the spline; the conversion only checked it.
+            Some(_) if ctx.keep_splines => out.splines.push(s.clone()),
             Some(l) => out.lines.push(l),
             None => ctx.warn("Unable to convert spline to line, dropped."),
         }
@@ -493,6 +835,119 @@ mod tests {
             comments: vec!["c".into()],
             ..Spline::default()
         }
+    }
+
+    /// The Bézier path sampled, and the farthest sample from the X-spline's
+    /// own polyline.
+    fn bezier_deviation(s: &Spline, path: &BezierPath) -> f64 {
+        let mut ctx = Ctx::default();
+        let poly: Vec<(f64, f64)> = if s.open_spline() {
+            compute_open_spline(&mut ctx, s, 0.05)
+        } else {
+            compute_closed_spline(&mut ctx, s, 0.05)
+        }
+        .unwrap()
+        .iter()
+        .map(|p| (f64::from(p.x), f64::from(p.y)))
+        .collect();
+        let mut at = path.start;
+        let mut worst = 0.0f64;
+        for g in &path.segments {
+            let samples: Vec<_> = (0..=20)
+                .map(|i| bezier_at(at, g.c1, g.c2, g.end, f64::from(i) / 20.0))
+                .collect();
+            worst = worst.max(max_dist(&samples, &poly));
+            at = g.end;
+        }
+        worst
+    }
+
+    fn shapes() -> Vec<Spline> {
+        let five = [(1200, 1200), (3600, 1200), (4200, 3000), (2400, 4200), (900, 3000)];
+        let four = [(1200, 5200), (2400, 6400), (3600, 5200), (4800, 6400)];
+        let six = [
+            (5200, 5200),
+            (6000, 6400),
+            (6800, 5200),
+            (7600, 6400),
+            (8000, 5200),
+            (8800, 6400),
+        ];
+        vec![
+            spline(3, &five, &[-1.0; 5]),
+            spline(1, &five, &[1.0; 5]),
+            spline(2, &four, &[0.0, -1.0, -1.0, 0.0]),
+            spline(0, &four, &[0.0, 1.0, 1.0, 0.0]),
+            spline(T_OPEN_XSPLINE, &six, &[0.0, 1.0, 0.0, -1.0, 1.0, 0.0]),
+            spline(T_CLOSED_XSPLINE, &six, &[0.5, 1.0, 0.0, -1.0, 0.3, -0.5]),
+        ]
+    }
+
+    #[test]
+    fn bezier_paths_follow_the_xspline() {
+        let exact = BezierTolerance { abs: 0.5, rel: 0.0 };
+        let loose = BezierTolerance { abs: 6.0, rel: 0.02 };
+        let mut splits = 0;
+        for (i, s) in shapes().into_iter().enumerate() {
+            let n = s.points.len();
+            let segments = if s.closed_spline() { n } else { n - 1 };
+            let tight = spline_to_bezier(&s, exact).unwrap();
+            let dev = bezier_deviation(&s, &tight);
+            assert!(dev <= 1.0, "type {} exact deviation {dev}", s.type_);
+            let rough = spline_to_bezier(&s, loose).unwrap();
+            let dev = bezier_deviation(&s, &rough);
+            let longest = s
+                .points
+                .windows(2)
+                .map(|w| f64::from(w[1].x - w[0].x).hypot(f64::from(w[1].y - w[0].y)))
+                .fold(0.0, f64::max);
+            let allowed = 6.0f64.max(0.02 * 1.5 * longest) + 1.0;
+            assert!(dev <= allowed, "type {} loose deviation {dev} > {allowed}", s.type_);
+            eprintln!(
+                "type {}: {} segments; exact {} (deviation {:.2}), loose {} (deviation {dev:.2})",
+                s.type_,
+                segments,
+                tight.segments.len(),
+                bezier_deviation(&s, &tight),
+                rough.segments.len()
+            );
+            assert_eq!(rough.closed, s.closed_spline());
+            splits += rough.splits;
+            // The closed approximated and interpolated splines never split.
+            if i < 2 {
+                assert_eq!(rough.splits, 0, "type {}", s.type_);
+            }
+            // Nodes are about the Fig points: at most 3 pieces per segment.
+            assert!(rough.segments.len() <= 3 * segments);
+        }
+        // Only segments next to a corner (shape factor 0) may split.
+        assert!(splits <= 4, "the default split {splits} segments");
+    }
+
+    #[test]
+    fn interpolated_bezier_nodes_are_the_fig_points() {
+        let s = &shapes()[0];
+        let path = spline_to_bezier(s, BezierTolerance { abs: 6.0, rel: 0.02 }).unwrap();
+        let mut nodes = vec![path.start];
+        nodes.extend(path.segments.iter().map(|g| g.end));
+        for p in &s.points {
+            let q = (f64::from(p.x), f64::from(p.y));
+            assert!(
+                nodes.iter().any(|n| (n.0 - q.0).hypot(n.1 - q.1) < 0.01),
+                "{q:?} in {nodes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn bezier_of_a_two_point_spline_is_a_line_and_of_a_bad_one_none() {
+        let tol = BezierTolerance { abs: 6.0, rel: 0.02 };
+        let two = spline(T_OPEN_XSPLINE, &[(0, 0), (100, 50)], &[0.0, 0.0]);
+        let p = spline_to_bezier(&two, tol).unwrap();
+        assert_eq!((p.segments.len(), p.segments[0].straight), (1, true));
+        assert!(spline_to_bezier(&spline(T_CLOSED_XSPLINE, &[(0, 0), (100, 50)], &[0.0, 0.0]), tol).is_none());
+        let nan = spline(T_OPEN_XSPLINE, &[(0, 0), (1, 5), (9, 9)], &[0.0, f64::NAN, 0.0]);
+        assert!(spline_to_bezier(&nan, tol).is_none());
     }
 
     #[test]

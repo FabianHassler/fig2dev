@@ -1461,6 +1461,9 @@ impl<'a> Reader<'a, '_> {
             let line = spline_to_line(self.ctx, &s);
             self.inp.skip_line();
             return match line {
+                // The driver draws the spline; the conversion only checked
+                // that it works.
+                Some(_) if self.ctx.keep_splines => Ok(SplineOrLine::Spline(s)),
                 Some(l) => Ok(SplineOrLine::Line(l)),
                 None => {
                     let line_no = self.line_no;

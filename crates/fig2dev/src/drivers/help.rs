@@ -279,6 +279,11 @@ const ASY: DriverHelp = DriverHelp {
             "do not quote characters special to TeX/LaTeX\n(effectively, set the text flag \"TeX\" for all text)",
         ),
         o('o', "", "do not set the font size"),
+        o(
+            'S',
+            "mode",
+            "write splines as guide (default: the Fig points kept, B-spline or\nBezier segments through them), hobby (Hobby's curve through the points\nof interpolated splines) or exact (within 0.5 units of xfig's curve)",
+        ),
         o('T', "", "only use TeX fonts (even when PS-fonts are specified)"),
         o('w', "", "remove suffix from included graphics-files"),
     ],
@@ -483,6 +488,7 @@ mod tests {
             for opt in h.options {
                 let arg = match (*l, opt.letter) {
                     ("pic", 'p') => "all",
+                    ("asy", 'S') => "guide",
                     (_, 'S') if l.contains("epic") => "10",
                     ("textyl", 'l') => "2",
                     ("gbx", 'd') => "mm",

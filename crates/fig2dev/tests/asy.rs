@@ -181,16 +181,24 @@ fn circles_and_ellipses_are_transformed_unit_circles() {
 }
 
 #[test]
-fn xspline_is_a_smooth_polyline_and_old_splines_are_converted() {
+fn xspline_is_a_guided_path_and_old_splines_are_converted() {
     let body = "3 4 0 1 0 7 50 -1 -1 0.000 0 0 0 4\n\t 600 600 1200 1500 1800 600 2400 1500\n\t 0 1 1 0\n";
     let out = asy(body, &[]);
-    assert!(out.matches("--").count() > 10, "{out}");
+    assert!(
+        out.contains("bspline(new pair[]{(600,-600),(1200,-1500),(1800,-600),(2400,-1500)},false)"),
+        "{out}"
+    );
+    let exact = asy(body, &[('S', Some("exact"))]);
+    assert!(exact.contains("..controls"), "{exact}");
     // A 2.1 approximated spline (type 1, closed) comes through `spline`.
     let old = "#FIG 3.1\nLandscape\nCenter\nInches\n1200 2\n\
                3 1 0 1 0 7 50 -1 -1 0.000 0 0 0 4\n\t 600 600 1200 1500 1800 600 2400 1500\n";
     let (out, _, exit) = run_with("asy", old.as_bytes(), None, &[], false).unwrap();
     assert_eq!(exit, 0);
-    assert!(out.contains("--cycle"), "{out}");
+    assert!(
+        out.contains("bspline(new pair[]{(600,-600),(1200,-1500),(1800,-600),(2400,-1500)},true)"),
+        "{out}"
+    );
 }
 
 #[test]
@@ -472,4 +480,502 @@ fn asy_compiles_the_figures() {
     let _ = std::fs::remove_dir_all(&dir);
     assert!(failed.is_empty(), "{}", failed.join("\n\n"));
     assert!(ok >= figs.len() / 2, "too few figures compiled");
+}
+
+// ---- Splines as Asymptote paths (-S guide | exact). ----
+
+use fig2dev::object::{Control, Point, Spline};
+use fig2dev::trans_spline::{compute_closed_spline, compute_open_spline};
+
+type Pair = (f64, f64);
+
+const FIVE: [(i32, i32); 5] = [(1200, 1200), (3600, 1200), (4200, 3000), (2400, 4200), (900, 3000)];
+const SIX: [(i32, i32); 6] = [
+    (5200, 5200),
+    (6000, 6400),
+    (6800, 5200),
+    (7600, 6400),
+    (8000, 5200),
+    (8800, 6400),
+];
+
+/// A Fig 3.2 spline object; `arrows` adds a forward arrow, `fill` an area fill.
+fn spline_obj(type_: i32, pts: &[(i32, i32)], factors: &[f64], arrow: bool, fill: i32) -> String {
+    let p: Vec<String> = pts.iter().map(|(x, y)| format!("{x} {y}")).collect();
+    let f: Vec<String> = factors.iter().map(|v| format!("{v}")).collect();
+    format!(
+        "3 {type_} 0 1 0 4 50 -1 {fill} 0.000 0 {} 0 {}\n{}\t {}\n\t {}\n",
+        i32::from(arrow),
+        pts.len(),
+        if arrow { "\t 1 1 1.00 60.00 120.00\n" } else { "" },
+        p.join(" "),
+        f.join(" ")
+    )
+}
+
+fn spline_of(type_: i32, pts: &[(i32, i32)], factors: &[f64]) -> Spline {
+    Spline {
+        type_,
+        points: pts.iter().map(|&(x, y)| Point::new(x, y)).collect(),
+        controls: factors
+            .iter()
+            .map(|&s| Control {
+                s,
+                ..Control::default()
+            })
+            .collect(),
+        ..Spline::default()
+    }
+}
+
+/// The path of the first `draw(` after the bounds box, up to the pen.
+fn first_path(out: &str) -> &str {
+    let from = out.find("invisible);\n").unwrap() + "invisible);\n".len();
+    let rest = &out[from..];
+    let rest = rest.strip_prefix("draw(").unwrap_or(rest);
+    // The comment of a mixed spline written as Béziers.
+    let rest = if rest.starts_with("//") {
+        rest.split_once('\n').map_or(rest, |(_, r)| r)
+    } else {
+        rest
+    };
+    &rest[..rest.find(",rgb(").unwrap()]
+}
+
+fn read_pair(s: &str) -> (Pair, &str) {
+    let s = s.strip_prefix('(').unwrap();
+    let end = s.find(')').unwrap();
+    let (x, y) = s[..end].split_once(',').unwrap();
+    ((x.parse().unwrap(), -y.parse::<f64>().unwrap()), &s[end + 1..])
+}
+
+/// Start node and segments (controls and end) of an explicit-controls path
+/// in Fig coordinates (y down); whether it ends in `cycle`.
+fn parse_bezier(path: &str) -> (Pair, Vec<[Pair; 3]>, bool) {
+    let flat: String = path.chars().filter(|c| !c.is_whitespace()).collect();
+    let (start, mut rest) = read_pair(&flat);
+    let (mut at, mut segs, mut closed) = (start, Vec::new(), false);
+    loop {
+        if let Some(r) = rest.strip_prefix("..controls") {
+            let (c1, r) = read_pair(r);
+            let (c2, r) = read_pair(r.strip_prefix("and").unwrap());
+            let r = r.strip_prefix("..").unwrap();
+            if let Some(r) = r.strip_prefix("cycle") {
+                segs.push([c1, c2, start]);
+                closed = true;
+                rest = r;
+            } else {
+                let (e, r) = read_pair(r);
+                segs.push([c1, c2, e]);
+                at = e;
+                rest = r;
+            }
+        } else if let Some(r) = rest.strip_prefix("--") {
+            if let Some(r) = r.strip_prefix("cycle") {
+                segs.push([at, start, start]);
+                closed = true;
+                rest = r;
+            } else {
+                let (e, r) = read_pair(r);
+                segs.push([at, e, e]);
+                at = e;
+                rest = r;
+            }
+        } else {
+            assert!(rest.is_empty(), "left over: {rest}");
+            return (start, segs, closed);
+        }
+    }
+}
+
+fn dist_to_poly(p: Pair, poly: &[Pair]) -> f64 {
+    poly.windows(2)
+        .map(|w| {
+            let (dx, dy) = (w[1].0 - w[0].0, w[1].1 - w[0].1);
+            let l2 = dx * dx + dy * dy;
+            let u = if l2 > 0.0 {
+                (((p.0 - w[0].0) * dx + (p.1 - w[0].1) * dy) / l2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            (p.0 - w[0].0 - u * dx).hypot(p.1 - w[0].1 - u * dy)
+        })
+        .fold(f64::INFINITY, f64::min)
+}
+
+fn xspline_polyline(s: &Spline) -> Vec<Pair> {
+    let mut ctx = fig2dev::Ctx::default();
+    let pts = if s.closed_spline() {
+        compute_closed_spline(&mut ctx, s, 0.05)
+    } else {
+        compute_open_spline(&mut ctx, s, 0.05)
+    }
+    .unwrap();
+    pts.iter().map(|p| (f64::from(p.x), f64::from(p.y))).collect()
+}
+
+/// The largest distance of the parsed Bézier path from the X-spline.
+fn deviation(path: &str, s: &Spline) -> f64 {
+    let poly = xspline_polyline(s);
+    let (start, segs, _) = parse_bezier(path);
+    let mut at = start;
+    let mut worst = 0.0f64;
+    for [c1, c2, e] in segs {
+        for i in 0..=20 {
+            let u = f64::from(i) / 20.0;
+            let v = 1.0 - u;
+            let q = |f: fn(Pair) -> f64| {
+                v * v * v * f(at) + 3.0 * v * v * u * f(c1) + 3.0 * v * u * u * f(c2) + u * u * u * f(e)
+            };
+            worst = worst.max(dist_to_poly((q(|p| p.0), q(|p| p.1)), &poly));
+        }
+        at = e;
+    }
+    worst
+}
+
+fn controls(s: &str) -> usize {
+    s.matches("..controls").count()
+}
+
+#[test]
+fn exact_mode_keeps_the_points_as_nodes_and_guide_is_the_default() {
+    let body = spline_obj(3, &FIVE, &[-1.0; 5], false, -1);
+    let out = asy(&body, &[('S', Some("exact"))]);
+    let path = first_path(&out);
+    assert!(path.ends_with("..cycle"), "{path}");
+    // Every Fig point is a node (y turned upwards).
+    for (x, y) in FIVE {
+        assert!(path.contains(&format!("({x},{})", -y)), "{x},{y} in {path}");
+    }
+    // `-S guide` is the default.
+    assert_eq!(asy(&body, &[('S', Some("guide"))]), asy(&body, &[]));
+    assert_ne!(asy(&body, &[]), out);
+}
+
+#[test]
+fn exact_mode_is_within_half_a_unit() {
+    let cases = [
+        (3, FIVE.to_vec(), vec![-1.0; 5]),
+        (1, FIVE.to_vec(), vec![1.0; 5]),
+        (2, SIX[..4].to_vec(), vec![0.0, -1.0, -1.0, 0.0]),
+        (0, SIX[..4].to_vec(), vec![0.0, 1.0, 1.0, 0.0]),
+        (4, SIX.to_vec(), vec![0.0, 1.0, 0.0, -1.0, 1.0, 0.0]),
+        (5, SIX.to_vec(), vec![0.5, 1.0, 0.0, -1.0, 0.3, -0.5]),
+    ];
+    for (t, pts, f) in cases {
+        let out = asy(&spline_obj(t, &pts, &f, false, -1), &[('S', Some("exact"))]);
+        let path = first_path(&out);
+        let dev = deviation(path, &spline_of(t, &pts, &f));
+        eprintln!("exact type {t}: {} pieces, deviation {dev:.2}", controls(path));
+        // The polyline itself is rounded to whole units.
+        assert!(dev <= 1.0, "type {t}: {dev}");
+        let (_, segs, closed) = parse_bezier(path);
+        assert_eq!(closed, t % 2 == 1);
+        assert!(segs.len() <= 12 * pts.len(), "type {t}: {} pieces", segs.len());
+    }
+}
+
+#[test]
+fn mixed_shape_factors_with_a_corner() {
+    let f = [0.0, 1.0, 0.0, -1.0, 1.0, 0.0];
+    let out = asy(&spline_obj(4, &SIX, &f, false, -1), &[]);
+    let path = first_path(&out);
+    let dev = deviation(path, &spline_of(4, &SIX, &f));
+    eprintln!("bezier mixed: {} pieces, deviation {dev:.2}", controls(path));
+    assert!(controls(path) >= 5 && controls(path) <= 12, "{path}");
+    assert!(dev <= 40.0, "{dev}");
+    // The corner at the third point: its neighbours' controls sit on it.
+    assert!(path.contains("(6800,-5200)"), "{path}");
+}
+
+#[test]
+fn guide_mode_approximated_is_a_bspline_of_the_points() {
+    let body = spline_obj(1, &FIVE, &[1.0; 5], false, -1);
+    let out = asy(&body, &[('S', Some("guide"))]);
+    assert!(out.contains("path bspline(pair[] p, bool closed=false)"), "{out}");
+    let draw = &out[out.find("draw(bspline(").unwrap()..];
+    assert!(
+        draw.starts_with(
+            "draw(bspline(new pair[]{(1200,-1200),(3600,-1200),(4200,-3000),(2400,-4200),(900,-3000)},true),"
+        ),
+        "{draw}"
+    );
+    assert!(!draw.contains("controls"));
+    // The helper is defined once, however many splines use it.
+    let two = format!("{body}{body}");
+    assert_eq!(asy(&two, &[]).matches("path bspline(").count(), 1);
+}
+
+/// The uniform cubic B-spline `bspline` draws, as points (closed, or open
+/// with the end points tripled).
+fn bspline_points(p: &[(i32, i32)], closed: bool) -> Vec<Pair> {
+    let mut q: Vec<Pair> = p.iter().map(|&(x, y)| (f64::from(x), f64::from(y))).collect();
+    let (mut first, mut range_end) = (0, q.len());
+    if !closed {
+        let (f, l) = (q[0], q[q.len() - 1]);
+        q.splice(0..0, [f, f]);
+        q.extend([l, l]);
+        first = 1;
+        range_end = q.len() - 2;
+    }
+    let n = q.len();
+    let mut out = Vec::new();
+    for i in first..range_end {
+        let (a, b, c, d) = (q[(i + n - 1) % n], q[i], q[(i + 1) % n], q[(i + 2) % n]);
+        for j in 0..=16 {
+            let u = f64::from(j) / 16.0;
+            let w = [
+                (1.0 - u).powi(3) / 6.0,
+                (3.0 * u.powi(3) - 6.0 * u * u + 4.0) / 6.0,
+                (-3.0 * u.powi(3) + 3.0 * u * u + 3.0 * u + 1.0) / 6.0,
+                u.powi(3) / 6.0,
+            ];
+            out.push((
+                w[0] * a.0 + w[1] * b.0 + w[2] * c.0 + w[3] * d.0,
+                w[0] * a.1 + w[1] * b.1 + w[2] * c.1 + w[3] * d.1,
+            ));
+        }
+    }
+    out
+}
+
+#[test]
+fn bspline_of_the_guide_mode_is_close_to_the_xspline() {
+    for (t, pts, f) in [
+        (1, FIVE.to_vec(), vec![1.0; 5]),
+        (0, SIX.to_vec(), vec![0.0, 1.0, 1.0, 1.0, 1.0, 0.0]),
+    ] {
+        let s = spline_of(t, &pts, &f);
+        let poly = xspline_polyline(&s);
+        let bs = bspline_points(&pts, t % 2 == 1);
+        let dev = bs.iter().map(|&p| dist_to_poly(p, &poly)).fold(0.0, f64::max);
+        let back = poly.iter().map(|&p| dist_to_poly(p, &bs)).fold(0.0, f64::max);
+        eprintln!("bspline vs X-spline type {t}: {dev:.1} / {back:.1} Fig units");
+        // About one percent of the figure's 3000-unit size.
+        assert!(dev < 40.0 && back < 40.0, "{dev} {back}");
+    }
+}
+
+#[test]
+fn guide_mode_interpolated_is_bezier_through_the_points() {
+    let out = asy(&spline_obj(3, &FIVE, &[-1.0; 5], false, -1), &[]);
+    let path = first_path(&out);
+    assert_eq!(controls(path), 5, "{path}");
+    for (x, y) in FIVE {
+        assert!(path.contains(&format!("({x},{})", -y)), "{x},{y} in {path}");
+    }
+    assert!(!out.contains("// Mixed"));
+    let dev = deviation(path, &spline_of(3, &FIVE, &[-1.0; 5]));
+    assert!(dev <= 40.0, "{dev}");
+}
+
+#[test]
+fn hobby_mode_interpolated_is_hobby_through_the_points() {
+    let out = asy(&spline_obj(3, &FIVE, &[-1.0; 5], false, -1), &[('S', Some("hobby"))]);
+    assert_eq!(
+        first_path(&out),
+        "(1200,-1200)..(3600,-1200)..(4200,-3000)..(2400,-4200)..(900,-3000)..cycle"
+    );
+    // Open: the ends have shape factor 0 but are not corners.
+    let out = asy(
+        &spline_obj(2, &SIX[..4], &[0.0, -1.0, -1.0, 0.0], false, -1),
+        &[('S', Some("hobby"))],
+    );
+    assert_eq!(
+        first_path(&out),
+        "(5200,-5200)..(6000,-6400)..(6800,-5200)..(7600,-6400)"
+    );
+    assert!(!out.contains("controls"));
+}
+
+#[test]
+fn guide_mode_mixed_falls_back_to_bezier_with_a_comment() {
+    let f = [0.0, 1.0, 0.0, -1.0, 1.0, 0.0];
+    let out = asy(&spline_obj(4, &SIX, &f, false, -1), &[('S', Some("guide"))]);
+    assert!(out.contains("// Mixed shape factors"), "{out}");
+    assert!(controls(&out) >= 5);
+    assert!(!out.contains("bspline"));
+}
+
+#[test]
+fn spline_mode_rejects_other_arguments() {
+    let mut ctx = fig2dev::Ctx::default();
+    let mut dev = fig2dev::drivers::driver("asy").unwrap();
+    assert!(dev.option(&mut ctx, 'S', Some("smooth")).is_err());
+    assert!(dev.option(&mut ctx, 'S', Some("bezier")).is_err());
+    assert!(dev.option(&mut ctx, 'S', Some("guide")).is_ok());
+    assert!(dev.option(&mut ctx, 'S', Some("hobby")).is_ok());
+    assert!(dev.option(&mut ctx, 'S', Some("exact")).is_ok());
+    assert!(dev.keeps_splines());
+}
+
+#[test]
+fn splines_with_arrows_and_fills() {
+    // Arrowheads: the shaft is clipped as for a polyline, the head is a path.
+    let out = asy(&spline_obj(4, &SIX, &[0.0, 1.0, 0.0, -1.0, 1.0, 0.0], true, -1), &[]);
+    assert!(out.contains("clip(p,"), "{out}");
+    assert!(out.contains("draw(p,g,"), "{out}");
+    assert!(out.contains("(5200,-5200)"), "{out}");
+    assert!(controls(&out) >= 5);
+    assert!(out.contains("filldraw("), "{out}");
+    // A filled closed spline: the fill is the same path.
+    let out = asy(&spline_obj(3, &FIVE, &[-1.0; 5], false, 20), &[]);
+    assert!(
+        out.contains("fill(g,rgb(\"000000\"));") || out.contains("fill(g,"),
+        "{out}"
+    );
+    assert!(out.contains("..cycle"), "{out}");
+    // Dashes work on the Bézier path.
+    let dashed = spline_obj(1, &FIVE, &[1.0; 5], false, -1)
+        .replacen("3 1 0 1", "3 1 1 1", 1)
+        .replacen("0.000", "4.000", 1);
+    let out = asy(&dashed, &[]);
+    assert!(out.contains("linetype("), "{out}");
+    // An open filled spline is closed for the fill only.
+    let out = asy(&spline_obj(2, &SIX[..4], &[0.0, -1.0, -1.0, 0.0], false, 20), &[]);
+    assert!(out.contains("fill(g--cycle,"), "{out}");
+}
+
+#[test]
+fn the_figure_bounds_do_not_depend_on_how_splines_are_drawn() {
+    // The header's box is the same as with the flattened curve (the other
+    // drivers' bounds).
+    let body = spline_obj(3, &FIVE, &[-1.0; 5], false, -1);
+    let asy_out = asy(&body, &[]);
+    let (eps, _, _) = run("eps", &body, &[]).unwrap();
+    let bb = eps.lines().find(|l| l.starts_with("%%BoundingBox")).unwrap();
+    assert!(asy_out.contains("invisible)"));
+    let _ = bb;
+    let bounds = asy_out.lines().find(|l| l.contains("invisible")).unwrap();
+    let (llx, ury_neg) = {
+        let (a, _) = read_pair(bounds.strip_prefix("draw(box(").unwrap());
+        a
+    };
+    assert!(llx > 0.0 && ury_neg.abs() > 0.0);
+    // Same bounds as the polyline of a figure with its spline flattened by
+    // the reader (a driver that does not keep splines).
+    let mut ctx = fig2dev::Ctx::default();
+    let flat = fig2dev::read::readfp_fig(&mut ctx, format!("{}{body}", tex_common::HDR).as_bytes()).unwrap();
+    let mut kept_ctx = fig2dev::Ctx {
+        keep_splines: true,
+        ..fig2dev::Ctx::default()
+    };
+    let kept = fig2dev::read::readfp_fig(&mut kept_ctx, format!("{}{body}", tex_common::HDR).as_bytes()).unwrap();
+    assert_eq!((flat.splines.len(), kept.splines.len()), (0, 1));
+    assert_eq!(
+        fig2dev::bound::compound_bound(&ctx, &flat, true),
+        fig2dev::bound::compound_bound(&kept_ctx, &kept, true)
+    );
+}
+
+#[test]
+fn long_splines_are_joined_from_pieces() {
+    let pts: Vec<(i32, i32)> = (0..400).map(|i| (600 + 20 * i, 3000 + (i % 5) * 300)).collect();
+    let f: Vec<f64> = (0..pts.len())
+        .map(|i| if i == 0 || i + 1 == pts.len() { 0.0 } else { -1.0 })
+        .collect();
+    let out = asy(&spline_obj(2, &pts, &f, false, -1), &[('S', Some("exact"))]);
+    assert!(out.contains("path xfigjoin(path[] p)"), "defined once, before use");
+    assert_eq!(out.matches("path xfigjoin(").count(), 1);
+    assert!(
+        out.contains("draw(xfigjoin(new path[]{"),
+        "{}",
+        &out[..600.min(out.len())]
+    );
+    assert!(out.find("path xfigjoin(").unwrap() < out.find("draw(xfigjoin(").unwrap());
+    // A closed one ends in &cycle.
+    let mut cl = pts.clone();
+    cl.push((600, 5000));
+    let f: Vec<f64> = vec![-1.0; cl.len()];
+    let out = asy(&spline_obj(3, &cl, &f, false, -1), &[('S', Some("exact"))]);
+    assert!(
+        out.contains("}))&cycle") || out.contains("}\n    )&cycle") || out.contains("&cycle,"),
+        "{out}"
+    );
+}
+
+#[test]
+fn boxes_and_polygons_keep_their_native_forms() {
+    let body = "2 2 0 1 0 7 50 -1 -1 0.000 0 0 -1 0 0 5\n\t 600 600 1800 600 1800 1500 600 1500 600 600\n\
+                2 3 0 1 0 7 50 -1 -1 0.000 0 0 -1 0 0 4\n\t 3000 600 4000 600 3500 1500 3000 600\n";
+    let out = asy(body, &[]);
+    assert!(out.contains("draw(box((600,-600),(1800,-1500))"), "{out}");
+    assert!(out.contains("(3000,-600)--(4000,-600)--(3500,-1500)--cycle"), "{out}");
+}
+
+const SPLINE_FIGS: &[&str] = &[
+    "interp-closed",
+    "approx-closed",
+    "interp-open",
+    "mixed-open",
+    "arrow",
+    "filled",
+];
+
+fn spline_figs() -> Vec<(String, String)> {
+    let f = [0.0, 1.0, 0.0, -1.0, 1.0, 0.0];
+    vec![
+        ("interp-closed".into(), spline_obj(3, &FIVE, &[-1.0; 5], false, -1)),
+        ("approx-closed".into(), spline_obj(1, &FIVE, &[1.0; 5], false, -1)),
+        (
+            "interp-open".into(),
+            spline_obj(2, &SIX[..4], &[0.0, -1.0, -1.0, 0.0], false, -1),
+        ),
+        ("mixed-open".into(), spline_obj(4, &SIX, &f, false, -1)),
+        ("arrow".into(), spline_obj(4, &SIX, &f, true, -1)),
+        ("filled".into(), spline_obj(3, &FIVE, &[-1.0; 5], false, 20)),
+    ]
+}
+
+#[test]
+#[ignore = "runs the asy program; cargo test --test asy asy_compiles_splines -- --ignored --nocapture"]
+fn asy_compiles_splines_in_every_mode() {
+    if Command::new("asy").arg("-version").output().is_err() {
+        eprintln!("asy not installed; skipped");
+        return;
+    }
+    assert_eq!(SPLINE_FIGS.len(), spline_figs().len());
+    let dir = std::env::temp_dir().join(format!("fig2dev-asy-splines-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut failed = Vec::new();
+    for mode in ["exact", "guide", "hobby"] {
+        for (name, body) in spline_figs() {
+            let out = asy(&body, &[('S', Some(mode))]);
+            let file = format!("{name}-{mode}");
+            if let Err(e) = run_asy(&dir, &file, &out) {
+                failed.push(format!("{file}: {e}"));
+            }
+        }
+    }
+    // A long one, in every mode.
+    let pts: Vec<(i32, i32)> = (0..400).map(|i| (600 + 20 * i, 3000 + (i % 5) * 300)).collect();
+    let f: Vec<f64> = vec![-1.0; pts.len()];
+    for mode in ["exact", "guide", "hobby"] {
+        let out = asy(&spline_obj(3, &pts, &f, false, -1), &[('S', Some(mode))]);
+        if let Err(e) = run_asy(&dir, &format!("long-{mode}"), &out) {
+            failed.push(format!("long-{mode}: {e}"));
+        }
+    }
+    eprintln!("outputs in {}", dir.display());
+    assert!(failed.is_empty(), "{}", failed.join("\n"));
+}
+
+#[test]
+fn hobby_mode_keeps_cubics_for_a_spline_with_arrowheads() {
+    let body = spline_obj(2, &SIX[..4], &[0.0, -1.0, -1.0, 0.0], true, -1);
+    let out = asy(&body, &[('S', Some("hobby"))]);
+    assert!(out.contains("// Arrowheads"), "{out}");
+    assert!(controls(&out) >= 3, "{out}");
+}
+
+#[test]
+fn xfigs_interpolated_factor_counts_as_interpolated() {
+    // xfig writes -0.5 for an interpolated spline (S_SPLINE_INTERP).
+    let body = spline_obj(3, &FIVE, &[-0.5; 5], false, -1);
+    let guide = asy(&body, &[]);
+    assert!(!guide.contains("// Mixed"), "{guide}");
+    let hobby = asy(&body, &[('S', Some("hobby"))]);
+    assert!(!hobby.contains("controls"), "{hobby}");
+    assert!(first_path(&hobby).ends_with("..cycle"));
 }

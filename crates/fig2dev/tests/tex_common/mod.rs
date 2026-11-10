@@ -34,6 +34,7 @@ pub fn run_with(
         }
     }
     ctx.font_size *= ctx.fontmag;
+    ctx.keep_splines = dev.keeps_splines();
     let Ok(objects) = readfp_fig(&mut ctx, fig) else {
         return Ok((String::new(), ctx.messages, 1));
     };
