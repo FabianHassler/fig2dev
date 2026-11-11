@@ -437,6 +437,12 @@ impl Driver for SceneDriver {
             Point::new(f64::from(ctx.llx) * k, f64::from(ctx.lly) * k),
             Point::new(f64::from(ctx.urx) * k, f64::from(ctx.ury) * k),
         ]);
+        // A fixed box (`Ctx::user_bounds`) is the page whatever TeX typeset.
+        let special = if ctx.user_bounds.is_some() {
+            Rect::EMPTY
+        } else {
+            special
+        };
         let raw = match (ctx.llx > ctx.urx || ctx.lly > ctx.ury, special.is_empty()) {
             (true, false) => special,
             (false, false) => fig.union(&special),
@@ -585,6 +591,7 @@ impl Driver for SceneDriver {
                     mag: ctx.mag,
                     comments: &self.comments,
                     composite,
+                    clip: ctx.user_bounds.is_some(),
                 },
                 embedded_eps: &b.embedded_eps,
                 comments: &self.comments_raw,

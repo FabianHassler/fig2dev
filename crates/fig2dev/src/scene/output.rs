@@ -139,6 +139,9 @@ pub struct Meta<'a> {
     /// `-j`: PostScript and EPS set Japanese and Korean text in composite
     /// fonts (the locale's prologue; see [`super::composite`]).
     pub composite: Option<super::composite::Composite>,
+    /// EPS clips the drawing to its `%%BoundingBox` (a fixed export box,
+    /// `Ctx::user_bounds`, with objects reaching past it). Not in fig2dev.
+    pub clip: bool,
 }
 
 /// Region covered by an export: the drawing's bounds plus the margin.

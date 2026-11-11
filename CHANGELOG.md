@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.17 — 2026-11-11
+
+- `Ctx::user_bounds` (not in fig2dev): a program can give a figure a fixed export box (llx, lly, urx, ury in Fig units) that replaces the objects' bounds; RustFig sets it from the figure's bounding box. Typeset special texts then no longer widen the page (scene drivers and svg), and EPS clips the drawing to its `%%BoundingBox` (`rectclip`; new `scene::output::Meta::clip`); PDF, the bitmaps and SVG crop to their page, TikZ clips as before. The fig2dev program never sets it: its output is unchanged.
+
 ## 0.9.16 — 2026-11-11
 
 - The figure's LaTeX preamble: RustFig saves it as whole-figure comment lines `# RustFigLaTeXPreamble <line>` (the marker alone is an empty line), so a figure's LaTeX texts compile from its file alone. Output that C fig2dev does not have now uses it: the complete documents of `tikz`, `pict2e` and `pstricks` (`-P`) put the lines after their own packages, before `\begin{document}`, and `asy` writes one `texpreamble('…');` per line. Everything C fig2dev writes is unchanged: the lines stay whole-figure comments there, as C prints them. New `gendev::latex_preamble` and `gendev::LATEX_PREAMBLE_MARKER`.

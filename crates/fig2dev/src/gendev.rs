@@ -150,6 +150,11 @@ pub struct Ctx {
     /// before reading, or before [`crate::trans_spline::splines_to_lines`]).
     /// Unlike `editing` it changes nothing else. Not in fig2dev.
     pub keep_splines: bool,
+    /// The figure's own bounds (llx, lly, urx, ury, Fig units), used instead
+    /// of the objects' bounds: a program that gives a figure a fixed export
+    /// box sets it (RustFig's bounding box). Not in fig2dev; the fig2dev
+    /// program never sets it.
+    pub user_bounds: Option<(i32, i32, i32, i32)>,
     /// Whether texts need a conversion to UTF-8 (`util::textconvert`).
     pub text_conv: crate::util::textconvert::ConvState,
     /// `-g`.
@@ -233,6 +238,7 @@ impl Default for Ctx {
             input_encoding: None,
             editing: false,
             keep_splines: false,
+            user_bounds: None,
             text_conv: Default::default(),
             background: Rgb::default(),
             grid_minor_spacing: 0.0,
@@ -748,7 +754,10 @@ fn convert_into(ctx: &mut Ctx, dev: &mut dyn Driver, objects: &Compound, out: &m
     ctx.grid_minor_spacing *= ctx.grid_mult * ctx.ppi as f32;
     ctx.grid_major_spacing *= ctx.grid_mult * ctx.ppi as f32;
 
-    let (llx, lly, urx, ury) = crate::bound::compound_bound(ctx, objects, dev.text_include());
+    let (llx, lly, urx, ury) = match ctx.user_bounds {
+        Some(b) => b,
+        None => crate::bound::compound_bound(ctx, objects, dev.text_include()),
+    };
     ctx.llx = llx;
     ctx.lly = lly;
     ctx.urx = urx;

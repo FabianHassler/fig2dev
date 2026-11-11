@@ -1286,6 +1286,10 @@ fn typeset_into_bounds(ctx: &mut Ctx, objects: &Compound) {
             ty.prepare(&reqs);
         }
     }
+    // A fixed box (`Ctx::user_bounds`) is the page whatever TeX typeset.
+    if ctx.user_bounds.is_some() {
+        return;
+    }
     let mut acc = None;
     walk(ctx, objects, &mut acc);
     let Some((x0, y0, x1, y1)) = acc else {

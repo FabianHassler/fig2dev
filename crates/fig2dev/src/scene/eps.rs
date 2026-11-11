@@ -886,6 +886,9 @@ pub fn to_eps(
     }
     type42_fonts(&mut c.out, &c.lf);
     c.out.push_str("%%EndProlog\n%%Page: 1 1\nsave\n");
+    if meta.clip {
+        let _ = writeln!(c.out, "0 0 {} {} rectclip", n(w), n(h));
+    }
     if let Some(bg) = background {
         c.rgb(bg);
         let _ = writeln!(c.out, "0 0 {} {} rectfill", n(w), n(h));
