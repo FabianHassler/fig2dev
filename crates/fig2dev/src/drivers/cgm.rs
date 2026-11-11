@@ -966,8 +966,8 @@ fn figname(from: Option<&str>) -> String {
 
 impl Driver for Cgm {
     fn option(&mut self, _ctx: &mut Ctx, opt: char, _arg: Option<&str>) -> Result<(), String> {
-        // fig2dev resets -r with every option.
-        self.rounded_arrows = false;
+        // C fig2dev resets -r with every option, so `-r -a` lost it; an
+        // option here changes only itself.
         match opt {
             'a' => self.binary_output = true,
             'r' => self.rounded_arrows = true,

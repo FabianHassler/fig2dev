@@ -85,3 +85,26 @@ fn same_as_fig2dev() {
         assert!(same * 10 >= total * 9, "{same} of {total} identical");
     }
 }
+
+/// Fig 3.2's tints are gray levels (C fig2dev's Fig 2.x table took them
+/// for textures), white at 40; patterns 41 to 62 get a texture each.
+#[test]
+fn tints_are_gray_and_patterns_textured() {
+    let fill = |f: i32| {
+        let body = format!("2 2 0 1 0 7 50 -1 {f} 0.000 0 0 -1 0 0 5\n\t 0 0 600 0 600 600 0 600 0 0\n");
+        run("tpic", &body, &[]).unwrap().0
+    };
+    let tint = fill(30);
+    assert!(tint.contains(" shaded 0.450") && !tint.contains(".tx"), "{tint}");
+    // Tint 30 is as light as shade 10.
+    assert!(fill(10).contains(" shaded 0.450"));
+    let white = fill(40);
+    assert!(white.contains(" white") && !white.contains(".tx"), "{white}");
+    let bricks = fill(47);
+    assert!(
+        bricks.contains(".tx 16 f f 8 0 8 0 8 0 f f 0 8 0 8 0 8") && bricks.contains(" shaded with"),
+        "{bricks}"
+    );
+    // The last pattern has a texture too (C: none beyond 47).
+    assert!(fill(62).contains(".tx 16 8 1 4 2 2 4 1 8"));
+}

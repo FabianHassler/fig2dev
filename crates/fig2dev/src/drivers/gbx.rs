@@ -99,8 +99,6 @@ struct Gbx {
     /// Diameters and widths stored at their aperture index; `-1` unset.
     circ_list: Vec<f64>,
     square_list: Vec<f64>,
-    count_circ: usize,
-    count_square: usize,
 }
 
 /// The driver for `lang` (`gbx`).
@@ -122,8 +120,6 @@ pub fn new(lang: &str) -> Option<Box<dyn Driver>> {
             count_apertures: 0,
             circ_list: vec![-1.0; MAX_APERTURE_INDEX as usize],
             square_list: vec![-1.0; MAX_APERTURE_INDEX as usize],
-            count_circ: 0,
-            count_square: 0,
         }) as Box<dyn Driver>
     })
 }
@@ -373,8 +369,10 @@ impl Gbx {
     }
 
     /// `ad_aperture_define_circ`: the index of a circular aperture of this
-    /// diameter, defined on first use. Like fig2dev, the lookup scans only
-    /// the first `count_circ` entries of a list indexed by aperture number.
+    /// diameter, defined on first use. The lookup scans every aperture
+    /// defined so far: C fig2dev scanned only as many entries as there were
+    /// circles, in a list indexed by aperture number, so after a square one
+    /// it missed existing circles and defined them again.
     fn define_circ(&mut self, out: &mut Out, dia: f64) -> Result<i64, String> {
         if dia.is_nan() || dia <= 0.0 {
             return Err("Error: Something tried to define a circular aperture of zero size.".into());
@@ -382,7 +380,7 @@ impl Gbx {
         let found = self
             .circ_list
             .iter()
-            .take(self.count_circ)
+            .take(usize::try_from(self.count_apertures).unwrap_or(0))
             .position(|&d| is_double_equal(d, dia));
         if let Some(i) = found {
             return Ok(i as i64);
@@ -393,12 +391,12 @@ impl Gbx {
         if let Some(slot) = self.circ_list.get_mut(index as usize) {
             *slot = dia;
         }
-        self.count_circ += 1;
         self.count_apertures += 1;
         Ok(index)
     }
 
-    /// `ad_aperture_define_square`.
+    /// `ad_aperture_define_square`: as [`Gbx::define_circ`], and with the
+    /// same fix.
     fn define_square(&mut self, out: &mut Out, width: f64) -> Result<i64, String> {
         if width.is_nan() || width <= 0.0 {
             return Err("Error: Something tried to define a square aperture of zero size.".into());
@@ -406,7 +404,7 @@ impl Gbx {
         let found = self
             .square_list
             .iter()
-            .take(self.count_square)
+            .take(usize::try_from(self.count_apertures).unwrap_or(0))
             .position(|&w| is_double_equal(w, width));
         if let Some(i) = found {
             return Ok(i as i64);
@@ -417,7 +415,6 @@ impl Gbx {
         if let Some(slot) = self.square_list.get_mut(index as usize) {
             *slot = width;
         }
-        self.count_square += 1;
         self.count_apertures += 1;
         Ok(index)
     }

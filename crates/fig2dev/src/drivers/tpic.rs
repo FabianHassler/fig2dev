@@ -71,7 +71,21 @@ const TEX_FONT_SIZES_INT: [i32; 26] = [
     9, 10, 11, 12, 12, 14, 14, 14, 17, 17, 17, 20, 20, 20, 20, 20, 25,
 ];
 
-/// Bitmap texture patterns for fills beyond black (`texture_patterns`).
+/// Fig 3.2's white tint and its first and last pattern fills.
+const WHITE_TINT: i32 = 40;
+const FIRST_PATTERN: i32 = 41;
+const LAST_PATTERN: i32 = 62;
+
+/// The tpic texture (an index into [`TEXTURE_PATTERNS`]) nearest to each
+/// Fig pattern, 41 to 62: 30° left, right, crosshatch; 45° left, right,
+/// crosshatch; bricks horizontal, vertical; lines horizontal, vertical;
+/// crosshatch; shingles (2 horizontal, 2 vertical); fish scales large,
+/// small; circles, hexagons, octagons; tire treads horizontal, vertical.
+const FIG_PATTERN_TEXTURE: [usize; 22] = [
+    6, 18, 8, 7, 19, 24, 1, 1, 10, 22, 13, 11, 11, 23, 23, 0, 0, 12, 24, 24, 2, 2,
+];
+
+/// Bitmap texture patterns (`texture_patterns`).
 const TEXTURE_PATTERNS: [&str; MAXPATTERNS as usize] = [
     "8 0 8 0 4 1 3 e 0 8 0 8 1 4 e 3", // scales
     "f f 8 0 8 0 8 0 f f 0 8 0 8 0 8", // bricks
@@ -207,29 +221,34 @@ impl Tpic {
         }
     }
 
-    /// `set_texture`: the bitmap patterns.
+    /// `set_texture`: the bitmap texture of a pattern fill (41 to 62).
+    /// C fig2dev's table dates from Fig 2.x: it textured fills 21 to 47,
+    /// so Fig 3.2's tints came out as patterns and patterns 48 to 62 had
+    /// none. Each Fig pattern now takes the nearest of tpic's textures.
     fn set_texture(out: &mut Out, t: i32) {
-        if t <= BLACK_FILL || t > MAXPATTERNS + BLACK_FILL {
-            return;
-        }
-        if let Some(p) = usize::try_from(t - BLACK_FILL - 1)
+        let Some(&i) = usize::try_from(t - FIRST_PATTERN)
             .ok()
-            .and_then(|i| TEXTURE_PATTERNS.get(i))
-        {
+            .and_then(|k| FIG_PATTERN_TEXTURE.get(k))
+        else {
+            return;
+        };
+        if let Some(p) = TEXTURE_PATTERNS.get(i) {
             fprintf!(out, ".tx 16 {}\n", p);
         }
     }
 
-    /// `set_fill`: the fill attribute.
+    /// `set_fill`: the fill attribute. Shades 1 to 19 and tints 21 to 39
+    /// are gray levels (tpic draws no colors; a tint is as light as the
+    /// shade it mirrors, white at 40), patterns a texture (C fig2dev
+    /// took tints for textures, see [`Tpic::set_texture`]).
     fn set_fill(out: &mut Out, f: i32) {
-        if !(WHITE_FILL..=BLACK_FILL + MAXPATTERNS).contains(&f) {
-            return;
-        }
         match f {
             BLACK_FILL => out.puts(" black"),
-            WHITE_FILL => out.puts(" white"),
-            _ if f > BLACK_FILL => out.puts(" shaded"),
-            _ => fprintf!(out, " shaded {:.3}", f64::from(f - 1) * 0.05),
+            WHITE_FILL | WHITE_TINT => out.puts(" white"),
+            1..BLACK_FILL => fprintf!(out, " shaded {:.3}", f64::from(f - 1) * 0.05),
+            21..WHITE_TINT => fprintf!(out, " shaded {:.3}", f64::from(WHITE_TINT - f - 1) * 0.05),
+            FIRST_PATTERN..=LAST_PATTERN => out.puts(" shaded"),
+            _ => {}
         }
     }
 

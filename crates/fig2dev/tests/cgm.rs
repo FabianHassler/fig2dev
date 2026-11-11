@@ -140,7 +140,7 @@ fn polyline_arrow_box_circle_text() {
 }
 
 #[test]
-fn rounded_arrows_and_reset() {
+fn rounded_arrows_kept_by_later_options() {
     // -r: the arrow isn't moved back by the line width.
     let (out, _, _) = cgm(&[('r', None)]).unwrap();
     let expected = CGM.replace("(1222,1627);", "(1222,1597);").replace(
@@ -148,9 +148,9 @@ fn rounded_arrows_and_reset() {
         "polygon (1252,1627)(1222,1507)(1192,1627);",
     );
     assert_eq!(out, expected);
-    // fig2dev resets -r with every later option.
+    // A later option keeps -r (C fig2dev reset it with every option).
     let (out, _, _) = cgm(&[('r', None), ('G', Some("1"))]).unwrap();
-    assert_eq!(out, CGM);
+    assert_eq!(out, expected);
 }
 
 #[test]

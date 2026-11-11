@@ -1549,7 +1549,16 @@ impl<'a> Reader<'a, '_> {
                         next.extend_from_slice(raw.get(..end).unwrap_or_default());
                         break;
                     }
-                    next.extend_from_slice(raw);
+                    // A line break of a file with CRLF line ends is a
+                    // newline too (C fig2dev kept the CR of every line
+                    // after the first in the text).
+                    match raw.strip_suffix(b"\r\n") {
+                        Some(l) => {
+                            next.extend_from_slice(l);
+                            next.push(b'\n');
+                        }
+                        None => next.extend_from_slice(raw),
+                    }
                 }
                 next
             }

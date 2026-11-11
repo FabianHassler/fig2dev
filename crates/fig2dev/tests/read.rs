@@ -631,6 +631,16 @@ fn text_keeps_its_leading_blanks() {
     assert_eq!(t("abc  ").0, "abc  ");
 }
 
+/// A text over several lines of a file with CRLF line ends has plain
+/// newlines: C fig2dev kept the CR of every line after the first.
+#[test]
+fn multi_line_text_from_a_crlf_file() {
+    let src = top("4 0 0 50 -1 0 12 0.0000 4 135 405 1200 1200 a\n").replace('\n', "\r\n") + "b\r\nc\\001\r\n";
+    let c = ok_with(&src, &[]);
+    assert_eq!(c.texts[0].cstring, "a\nb\nc");
+    assert!(!c.texts[0].raw.contains(&b'\r'));
+}
+
 /// The older format (2.x, strings ended by ^A) keeps leading blanks as
 /// xfig does; version 1.3 reads `%d %[^\n]` in xfig, which skips them.
 #[test]

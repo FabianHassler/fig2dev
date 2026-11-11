@@ -1074,3 +1074,24 @@ fn too_many_apertures_keeps_partial_output() {
     // `convert` keeps its old shape.
     assert!(convert(&mut ctx, dev.as_mut(), &objects).is_err());
 }
+
+/// An aperture is defined once per size: after a square aperture, two
+/// round-joined lines of one width share their circle (C fig2dev looked
+/// in the wrong part of its list and defined the circle again).
+#[test]
+fn apertures_are_reused_after_another_kind() {
+    let (out, _, _) = run(
+        r#"1200 2
+2 1 0 3 0 7 50 -1 -1 0.000 0 0 -1 0 0 2
+	 0 0 600 0
+2 1 0 2 0 7 50 -1 -1 0.000 1 0 -1 0 0 3
+	 0 600 600 600 600 1200
+2 1 0 2 0 7 50 -1 -1 0.000 1 0 -1 0 0 3
+	 0 1800 600 1800 600 2400
+"#,
+        &[],
+    )
+    .unwrap();
+    let circles = out.lines().filter(|l| l.starts_with("%ADD") && l.contains('C')).count();
+    assert_eq!(circles, 1, "{out}");
+}

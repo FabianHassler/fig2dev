@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Four more bugs of fig2dev 3.2.9a no longer copied:
+  - tpic: fill styles follow Fig 3.2. C's texture table dates from Fig 2.x: tints 21 to 39 (and white, 40) came out as bitmap textures, patterns 41 to 47 got the wrong ones and 48 to 62 none. Now tints are gray levels as light as the shades they mirror (`shaded 0.450` for both 10 and 30), 40 is white, and each pattern 41 to 62 takes the nearest of tpic's 27 textures.
+  - CGM: `-r` (rounded arrows) is kept when other options follow it (C reset it with every option, so `-r -a` lost it).
+  - Gerber: an aperture is defined once per size. C looked up circular (and square) apertures in only as many entries as there were of that kind, in a list indexed by aperture number, so after an aperture of the other kind it missed existing ones, defined them again and could run out of apertures.
+  - Reader: a text over several lines of a file with CRLF line ends has plain newlines (C kept the carriage return of every line after the first in the text).
+
 ## 0.9.14 — 2026-11-10
 
 - Asymptote: splines are vector paths again. The driver `keeps_splines` (new `Driver::keeps_splines`, default `false`; new `Ctx::keep_splines`, which the fig2dev program and the tests set from it before reading, and which `trans_spline::splines_to_lines` honors), so the reader no longer flattens Fig 3.2 splines for it, and `spline` writes Asymptote's own path syntax with the Fig points as nodes: `..controls a and b..` Béziers, `--` for straight pieces, `cycle` for closed splines. Box, polygon, circle, ellipse, arc and rounded box keep their native forms. Every other driver's output is unchanged; the header's bounds are those of the flattened curve as before. Arrowheads are still computed from the flattened curve, so they do not move.
