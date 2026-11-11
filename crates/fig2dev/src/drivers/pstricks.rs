@@ -1651,7 +1651,13 @@ impl Driver for Pstricks {
                     fprintf!(out, ",{}", name);
                 }
             }
-            out.puts("}\n\\begin{document}\n\\begin{center}\n");
+            out.puts("}\n");
+            // The figure's own preamble (not in C fig2dev, whose figures
+            // have none): a complete document needs it to compile.
+            for line in crate::gendev::latex_preamble(&objects.comments) {
+                fprintf!(out, "{line}\n");
+            }
+            out.puts("\\begin{document}\n\\begin{center}\n");
         }
 
         let pllx = self.cm_d(-self.x_margin);

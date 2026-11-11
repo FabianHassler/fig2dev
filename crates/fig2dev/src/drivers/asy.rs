@@ -1051,6 +1051,12 @@ impl Driver for Asy {
             // PNG, JPEG and the other bitmaps need pdfLaTeX.
             out.puts("settings.tex=\"pdflatex\";\n");
         }
+        // The figure's own LaTeX preamble, for its texts.
+        for line in crate::gendev::latex_preamble(&objects.comments) {
+            if !line.trim().is_empty() {
+                fprintf!(out, "texpreamble({});\n", asy_string(&line));
+            }
+        }
         fprintf!(out, "unitsize({}bp);\n", num(self.unit, 6));
         out.puts("labelmargin=0;\n");
         for (i, u) in ctx.user_colors.iter().enumerate() {

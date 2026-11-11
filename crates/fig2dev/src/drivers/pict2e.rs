@@ -1970,6 +1970,11 @@ impl Driver for Pict2e {
             );
             // color.sty always: shaded black or tinted white needs it
             out.puts("\\usepackage{pict2e,graphics,color}\n");
+            // The figure's own preamble (not in C fig2dev, whose figures
+            // have none): a complete document needs it to compile.
+            for line in crate::gendev::latex_preamble(&objects.comments) {
+                fprintf!(out, "{line}\n");
+            }
             out.puts("\\parindent0pt\n\\begin{document}\n");
         }
         fprintf!(

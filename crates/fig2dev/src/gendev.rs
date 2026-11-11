@@ -814,9 +814,56 @@ pub fn print_comments(out: &mut Out, pre: &str, comments: &[crate::object::Comme
     }
 }
 
+/// The whole-figure comment lines that carry the figure's LaTeX preamble
+/// (RustFig writes them; C fig2dev prints them as comments only).
+pub const LATEX_PREAMBLE_MARKER: &str = "RustFigLaTeXPreamble";
+
+/// The figure's LaTeX preamble lines from its whole-figure comments
+/// (`# RustFigLaTeXPreamble <line>`; the marker alone is an empty line).
+/// Only output that C fig2dev does not write uses it, so what C writes
+/// stays the same.
+pub fn latex_preamble(comments: &[crate::object::Comment]) -> Vec<String> {
+    let mut lines = Vec::new();
+    for c in comments {
+        for line in c.text.split('\n') {
+            match line.strip_prefix(LATEX_PREAMBLE_MARKER) {
+                Some("") => lines.push(String::new()),
+                Some(rest) => {
+                    if let Some(l) = rest.strip_prefix(' ') {
+                        lines.push(l.trim_end_matches('\r').to_string());
+                    }
+                }
+                None => {}
+            }
+        }
+    }
+    while lines.last().is_some_and(String::is_empty) {
+        lines.pop();
+    }
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn latex_preamble_lines_from_the_comments() {
+        let c = |s: &str| crate::object::Comment::from(s);
+        let comments = [
+            c("made by hand"),
+            c("RustFigLaTeXPreamble \\usepackage{amsmath}"),
+            c("RustFigLaTeXPreamble"),
+            c("RustFigLaTeXPreambles are not lines"),
+            c("RustFigLaTeXPreamble \\newcommand{\\R}{\\mathbb{R}}"),
+            c("RustFigLaTeXPreamble"),
+        ];
+        assert_eq!(
+            latex_preamble(&comments),
+            ["\\usepackage{amsmath}", "", "\\newcommand{\\R}{\\mathbb{R}}"]
+        );
+        assert!(latex_preamble(&[c("plain")]).is_empty());
+    }
 
     #[test]
     fn depth_options_as_fig2dev() {

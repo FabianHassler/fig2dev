@@ -1281,6 +1281,11 @@ impl Driver for Tikz {
             if ctx.pats_used {
                 out.puts("\\usetikzlibrary{patterns}\n");
             }
+            // The figure's own preamble (not in C fig2dev, whose figures
+            // have none): a complete document needs it to compile.
+            for line in crate::gendev::latex_preamble(&objects.comments) {
+                fprintf!(out, "{line}\n");
+            }
             out.puts("\\parindent0pt\n\\begin{document}\n");
         }
         if !self.pagemode {
