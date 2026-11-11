@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.15 — 2026-11-11
 
 - Four more bugs of fig2dev 3.2.9a no longer copied:
   - tpic: fill styles follow Fig 3.2. C's texture table dates from Fig 2.x: tints 21 to 39 (and white, 40) came out as bitmap textures, patterns 41 to 47 got the wrong ones and 48 to 62 none. Now tints are gray levels as light as the shades they mirror (`shaded 0.450` for both 10 and 30), 40 is white, and each pattern 41 to 62 takes the nearest of tpic's 27 textures.
