@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.16 — 2026-11-11
+
+- The figure's LaTeX preamble: RustFig saves it as whole-figure comment lines `# RustFigLaTeXPreamble <line>` (the marker alone is an empty line), so a figure's LaTeX texts compile from its file alone. Output that C fig2dev does not have now uses it: the complete documents of `tikz`, `pict2e` and `pstricks` (`-P`) put the lines after their own packages, before `\begin{document}`, and `asy` writes one `texpreamble('…');` per line. Everything C fig2dev writes is unchanged: the lines stay whole-figure comments there, as C prints them. New `gendev::latex_preamble` and `gendev::LATEX_PREAMBLE_MARKER`.
+
 ## 0.9.15 — 2026-11-11
 
 - Four more bugs of fig2dev 3.2.9a no longer copied:
