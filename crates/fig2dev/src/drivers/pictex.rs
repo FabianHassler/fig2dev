@@ -107,7 +107,10 @@ impl Pictex {
     /// `\linethickness` for `cur_thickness` (1 or more): half a point for
     /// 1, else one point less than the thickness.
     fn put_linethickness(&self, out: &mut Out) {
-        if self.cur_thickness == 1 {
+        if self.cur_thickness == 0 {
+            // set_linewidth wrote 0pt for a width of 0.
+            out.puts("\\linethickness=0pt\n");
+        } else if self.cur_thickness == 1 {
             fprintf!(out, "\\linethickness={:6.3}pt\n", 0.5);
         } else {
             fprintf!(out, "\\linethickness={}pt\n", self.cur_thickness.wrapping_sub(1));
