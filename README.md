@@ -45,17 +45,9 @@ Either way the program is installed as `fig2dev` in `~/.cargo/bin` (on Windows `
 
 ## Languages and status
 
-Every fig2dev language is ported: PostScript, EPS, PDF, SVG, PNG, GIF, JPEG, TIFF, PPM, PCX, XBM, XPM, LaTeX picture, epic, eepic, eepicemu, PiCTeX, TeXtyl, tpic, pic, pstex, pdftex, pspdftex, pict2e, TikZ, PSTricks, LaTeX box, CGM, HPGL, DXF, MetaPost, METAFONT, ge, image map, Gerber, shape, EMF, Tk, Perl-Tk and AutoCAD slides (`sld`); beyond C's list, Asymptote (`asy`). Input encodings (`-E`) include UTF-8, ISO-8859-N, KOI8, CP125x, Mac and CJK, through `encoding_rs`.
+Every fig2dev language is ported: PostScript, EPS, PDF, SVG, PNG, GIF, JPEG, TIFF, PPM, PCX, XBM, XPM, LaTeX picture, epic, eepic, eepicemu, PiCTeX, TeXtyl, tpic, pic, pstex, pdftex (and their text halves pstex_t, pdftex_t), pict2e, TikZ, PSTricks, LaTeX box, CGM, HPGL, DXF, MetaPost, METAFONT, ge, image map, Gerber, shape, EMF, Tk, Perl-Tk and AutoCAD slides (`sld`); beyond C's list, Asymptote (`asy`). Input encodings (`-E`) include UTF-8, ISO-8859-N, KOI8, CP125x, Mac and CJK, through `encoding_rs`.
 
-Against fig2dev 3.2.9a (C):
-
-- Drawing order: objects sharing a depth come in xfig's order (arcs, compounds, ellipses, lines, splines, texts, each in file order), as xfig shows them. The C program sorts them with `qsort`, which leaves their order to the C library (macOS and glibc differ), so where objects of one depth overlap, its output can differ.
-
-- Text: leading blanks of a text are kept (all but the separating one), as xfig reads them; C fig2dev's `sscanf` drops them (Fig 1.3 files: dropped, as in xfig).
-- fig2dev's own test suite: 82 pass, 6 fail (`epsi` and two embedded-PostScript bitmap tests that need a PostScript interpreter, the `/MediaBox` helper program, a version-2 font size, the KOI8-R case whose `iconv KOI8R` macOS lacks), 6 need unported languages.
-- TeX family, plotters, EMF, Tk, pic, map: byte-identical to fig2dev on the test figures and on nearly all of xfig's ≈2,550 sample figures (the rest: Latin-1 text bytes, a few out-of-bounds reads in the C code).
-- EPS/PDF/SVG/bitmaps: same geometry as fig2dev. The C program writes PostScript and has ghostscript turn it into PDF and bitmaps; this port writes PDF itself and rasterises with tiny-skia, so PNG, GIF, JPEG etc. differ from ghostscript's pixels at the edges (antialiasing, font hinting) and are compared visually, not byte for byte.
-- PDF and EPS picture objects: a PDF file as a picture stays a vector. PDF output embeds its first page as a Form XObject (`hayro-write`); PostScript and EPS output get it as EPS written by a PostScript device on `hayro-interpret` (C: `pdftops`), as an image only when the page uses transparency, shadings or patterns (with a message); the bitmap languages render it with `hayro`; SVG links the file as gensvg does. An EPS picture is copied in as before in PostScript and EPS output (and pstex/pspdftex); in PDF and bitmap output it is drawn by ghostscript when `gs` is on `PATH` (run without a shell, `-dSAFER`, with a time and size limit, never on wasm), else from the preview image the file carries (bitmaps), or left out (PDF, with fig2dev's kind of message). JPEG pictures in PDF keep their data (`/DCTDecode`). Known limits: encrypted PDFs, PDF blend modes, knockout groups; CMYK colours are converted to RGB.
+How this program differs from fig2dev 3.2.9a (C), what it adds, what it does on purpose and what is not ported: [docs/differences.md](docs/differences.md). fig2dev's own test suite passes: 88 pass, 0 fail, 1 skipped.
 
 ## Building and testing
 

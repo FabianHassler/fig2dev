@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.18 — 2026-11-13
+
+- `docs/differences.md`, linked from the README (it replaces the README's list "Against fig2dev 3.2.9a"): the languages beyond C (`asy`, with its options and `-S guide|hobby|exact`), `sld`, what the program does on purpose (drawing order of depth ties, leading blanks of texts, PDF written natively, bitmaps by tiny-skia, PDF pictures kept as vectors, EPS pictures through an optional `gs`), what is not ported, and the library API beyond the program (`Ctx::user_bounds`, the typesetter, `gendev::latex_preamble`, `keep_splines`). The test `differences_doc` derives the options beyond C from the drivers and the options table and fails when one is missing from the page. fig2dev's own suite: 88 pass, 0 fail, 1 skipped.
+- Test `c_options`: the options C fig2dev 3.2.9a accepts for each language, transcribed from its sources, against what each driver takes and the options table (no option planned, none the table has beyond C).
+- PiCTeX: after a black-filled box the line thickness goes back to 0pt when the line width is 0 (C wrote `\linethickness=0pt` there).
+
 ## 0.9.17 — 2026-11-11
 
 - `Ctx::user_bounds` (not in fig2dev): a program can give a figure a fixed export box (llx, lly, urx, ury in Fig units) that replaces the objects' bounds; RustFig sets it from the figure's bounding box. Typeset special texts then no longer widen the page (scene drivers and svg), and EPS clips the drawing to its `%%BoundingBox` (`rectclip`; new `scene::output::Meta::clip`); PDF, the bitmaps and SVG crop to their page, TikZ clips as before. The fig2dev program never sets it: its output is unchanged.
